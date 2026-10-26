@@ -90,7 +90,7 @@ To update the baseline after a PsychoPy or nixpkgs update, follow the steps in t
 
    ```nix
    inputs.lab-pkgs = {
-     url = "path:/home/nixos/pkgs"; # Replace with the Git URL.
+     url = "github:aforren1/psych-nix";
      inputs.nixpkgs.follows = "nixpkgs";
    };
    ```

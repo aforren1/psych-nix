@@ -202,7 +202,9 @@ let
       modes = toString modes;
       pkgConfigModules = toString pkgConfigModules;
       datapixxMex = lib.optionalString withDatapixx vpixx-software-tools.datapixxMex.matlab;
-      dryRunStubs = ./dry-run;
+      # Interpolated, not toString: with lazy trees (newer Nix) a toString path
+      # inside the flake stays a virtual path and does not exist at run time.
+      dryRunStubs = "${./dry-run}";
       nixStore = "${lib.getBin nix}/bin/nix-store";
     };
   };
