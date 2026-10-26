@@ -89,7 +89,11 @@ jobs:
       # libraries as the builder and starts the shim.
       - name: Build matlab-psychtoolbox for these mex files
         run: |
-          echo "MEX_DIR=$MEX_OUT/$(nix eval --raw .#ptb-matlab-mex-builder.psychtoolbox.version)/$MATLAB_RELEASE/PsychBasic" >>"$GITHUB_ENV"
+          # Exported here as well: $GITHUB_ENV only reaches later steps, and
+          # the Nix expression below reads MEX_DIR in this one.
+          MEX_DIR=$MEX_OUT/$(nix eval --raw .#ptb-matlab-mex-builder.psychtoolbox.version)/$MATLAB_RELEASE/PsychBasic
+          export MEX_DIR
+          echo "MEX_DIR=$MEX_DIR" >>"$GITHUB_ENV"
           # shellcheck disable=SC2016 # ${release} is Nix, not shell.
           nix build -L --impure -o wrapper --expr '
             let
