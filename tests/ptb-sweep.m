@@ -9,7 +9,11 @@
 % list. It has one entry per line: name, call, limit and keys, separated by
 % tabs. Use it to try new candidates without editing this file. Set
 % PTB_SWEEP_VERBOSE=1 to print the end of the log of each entry, not only of
-% the failed ones: some demos catch their own errors and return normally.
+% the failed ones: some demos catch their own errors and return normally. Set
+% PTB_SWEEP_TIME_SCALE to multiply all time limits, for slow hosts such as
+% nested virtualization or loaded CI runners. The key schedules do not scale:
+% they count from the start of the demo, and the last key repeats until the
+% demo ends.
 %
 % Each entry runs in its own Octave process: a demo that segfaults or hangs
 % must not take the rest of the sweep with it, and Octave cannot interrupt a
@@ -159,8 +163,10 @@ function [cmd, release] = key_cmd(keys)
   end
 end
 
-function [status, msg, secs, log, sent] = parent_run(script, startup, workdir, e)
+function [status, msg, secs, log, sent] = parent_run(script, startup, workdir, e, scale)
   [name, call, limit, keys] = e{:};
+  limit = limit * scale;
+  start_limit = 120 * scale;
   base = fullfile(workdir, name);
   logfile = [base '.log'];
   ready = [base '.ready'];
@@ -168,15 +174,15 @@ function [status, msg, secs, log, sent] = parent_run(script, startup, workdir, e
   keylog = [base '.keys'];
   setenv('PTB_SWEEP_CALL', call);
   setenv('PTB_SWEEP_READY', ready);
-  % The watchdog gives the child 120 s to start the demo, then applies the
-  % limit from the start of the demo. The octave-cli wrappers exec, so $c is
-  % the Octave process.
-  wait_ready = sprintf(['n=0; while [ ! -e "%s" ] && [ $n -lt 600 ]; do' ...
-                        ' sleep 0.2; n=$((n+1)); done; '], ready);
+  % The watchdog gives the child start_limit seconds to start the demo, then
+  % applies the limit from the start of the demo. The octave-cli wrappers
+  % exec, so $c is the Octave process.
+  wait_ready = sprintf(['n=0; while [ ! -e "%s" ] && [ $n -lt %d ]; do' ...
+                        ' sleep 0.2; n=$((n+1)); done; '], ready, round(start_limit / 0.2));
   sh = { ...
     sprintf(['octave-cli --no-init-file -q "%s" "%s" --child' ...
              ' </dev/null >"%s" 2>&1 & c=$!'], script, startup, logfile), ...
-    sprintf(['(%s [ -e "%s" ] && sleep %d; touch "%s"; kill $c; sleep 5;' ...
+    sprintf(['(%s [ -e "%s" ] && sleep %g; touch "%s"; kill $c; sleep 5;' ...
              ' kill -9 $c) & w=$!'], wait_ready, ready, limit, expired)};
   [send, release] = key_cmd(keys);
   if ~isempty(send)
@@ -204,11 +210,11 @@ function [status, msg, secs, log, sent] = parent_run(script, startup, workdir, e
   end
   if exist(expired, 'file') && ~exist(ready, 'file')
     status = 'fail';
-    msg = sprintf('demo did not start within 120 s');
+    msg = sprintf('demo did not start within %g s', start_limit);
   elseif exist(expired, 'file')
     status = 'fail';
     secs = limit;
-    msg = sprintf('timeout after %d s', limit);
+    msg = sprintf('timeout after %g s', limit);
   elseif rc > 128
     status = 'fail';
     msg = sprintf('killed by signal %d', rc - 128);
@@ -243,10 +249,14 @@ else
   list = sweep_list();
 end
 verbose = strcmp(getenv('PTB_SWEEP_VERBOSE'), '1');
+scale = str2double(getenv('PTB_SWEEP_TIME_SCALE'));
+if ~(scale > 0)
+  scale = 1;
+end
 script = mfilename('fullpathext');
 workdir = tempname();
 mkdir(workdir);
-printf('SWEEP-START %d entries, logs in %s\n', rows(list), workdir);
+printf('SWEEP-START %d entries, time scale %g, logs in %s\n', rows(list), scale, workdir);
 counts = struct('ok', 0, 'fail', 0, 'skip', 0);
 t0 = tic;
 for i = 1:rows(list)
@@ -254,7 +264,7 @@ for i = 1:rows(list)
   if isempty(e{2})
     status = 'skip'; secs = 0; msg = e{4};
   else
-    [status, msg, secs, log, sent] = parent_run(script, startup, workdir, e);
+    [status, msg, secs, log, sent] = parent_run(script, startup, workdir, e, scale);
   end
   counts.(status) += 1;
   printf('SWEEP %s %s %.1f %s\n', e{1}, status, secs, msg);

@@ -77,6 +77,12 @@ let
     "${pkgs.coreutils}/bin/env PATH=${sweepPath}:/run/wrappers/bin:/run/current-system/sw/bin"
     "octave-cli --no-init-file --no-site-file -q ${./ptb-sweep.m} ${ptb.octaveStartup}"
   ];
+  # The VM test runs 4 to 8 times slower on slow hosts (nested KVM, loaded CI
+  # runners). The sweep multiplies all its time limits by this factor. A
+  # normal sweep takes about 3 minutes, so sweepWait covers an 8 times slower
+  # host with margin.
+  sweepTimeScale = 3;
+  sweepWait = 1800;
   # Sweep entries that must pass. The subtest fails only if one of these does
   # not pass; the other entries are logged for information. To update after a
   # PTB, Mesa or nixpkgs update, run the check, read the "SWEEP <name> ok"
@@ -184,8 +190,10 @@ in
         }", "/tmp/ptb-flipped", "PTB_WINDOW_OK")
 
     with subtest("Psychtoolbox demo sweep"):
-        machine.succeed("${run "ptbsweep" zink sweepCmd}")
-        machine.wait_until_succeeds("! systemctl is-active --quiet ptbsweep", timeout=900)
+        machine.succeed("${
+          run "ptbsweep" "${zink} --setenv=PTB_SWEEP_TIME_SCALE=${toString sweepTimeScale}" sweepCmd
+        }")
+        machine.wait_until_succeeds("! systemctl is-active --quiet ptbsweep", timeout=${toString sweepWait})
         out = machine.succeed("cat /tmp/ptbsweep.log")
         print(f"===== ptbsweep log =====\n{out}\n===== end ptbsweep =====")
         results = {}
