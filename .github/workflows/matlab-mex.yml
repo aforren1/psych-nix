@@ -14,7 +14,10 @@ on:
         description: MATLAB release, for example R2024b or R2025a
         default: R2024b
   push:
-    paths: ["psychtoolbox/**"]
+    paths:
+      - "psychtoolbox/**"
+      - "flake.lock" # The store libraries the mex files link change with it.
+      - ".github/workflows/matlab-mex.yml"
 
 permissions:
   contents: read
@@ -127,7 +130,9 @@ jobs:
           cmd+=" assert(startsWith(s, '$MEX_DIR'), 'Screen is not from the mex folder');"
           cmd+=" disp(Screen('Version')); disp(GetSecs); WaitSecs(0.01);"
           cmd+=" disp(PsychPortAudio('Version')); PsychtoolboxVersion"
-          wrapper/bin/matlab-psychtoolbox -batch "$cmd"
+          # Screen needs an X display even for Version; the runner has none.
+          nix run nixpkgs#xvfb-run -- -a -s "-screen 0 1280x1024x24" \
+            wrapper/bin/matlab-psychtoolbox -batch "$cmd"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
