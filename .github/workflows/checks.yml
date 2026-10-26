@@ -1,12 +1,21 @@
 # Builds all packages and runs all tests (`nix flake check`), including the
 # two NixOS VM tests and the PsychoPy pytest suite.
 #
-# No binary cache is configured, on purpose. The unfree vendor packages
+# Store cache: nix-community/cache-nix-action keeps /nix in the GitHub Actions
+# cache, so a warm run does not build wxPython, octave-ilp64 and the PsychoPy
+# 2024 set again (about 90 minutes cold).
+#
+# No public binary cache is configured, on purpose. The unfree vendor packages
 # (SR Research, VPixx) come from the vendors' public URLs during the build,
-# and their licenses do not permit redistribution, so they must not be pushed
-# to a public cache. A store cache in GitHub's Actions cache (for example
-# magic-nix-cache) is readable by pull request runs from forks, so it is not
-# used either. Thus each run builds wxPython and octave-ilp64 again.
+# and their licenses do not permit redistribution. The Actions cache is not
+# public, but it is scoped to this repository, and pull request runs from
+# forks can restore the caches of the base branch. Thus the last step deletes
+# the vendor packages, their sources, and everything that refers to them from
+# the store before the cache is saved.
+# The base packages (psychopy-env, psychopy-app, psychopy-studio,
+# psychtoolbox-3, octave-psychtoolbox, octave-ilp64, psychopy-2024-env and
+# psychopy-2024-app) stay in the cache. They contain meshpy (Triangle, which
+# is free only for non-commercial use), as every user's local build does.
 name: Checks
 
 on:
@@ -15,6 +24,9 @@ on:
 
 permissions:
   contents: read
+  # For cache-nix-action to purge old caches. Pull request runs from forks
+  # get a read-only token anyway.
+  actions: write
 
 concurrency:
   group: checks-${{ github.ref }}
@@ -27,6 +39,14 @@ jobs:
     # 2026 builds and about 66 minutes for the PsychoPy 2024 set (Python 3.10
     # is not on Hydra). Runners can be slower than a workstation.
     timeout-minutes: 300
+    env:
+      # GitHub keeps at most 10 GB of caches per repository and evicts the
+      # least recently used ones first, and each cache here is about 7 GB.
+      # A second cache from another branch would push out the main one, so
+      # only pushes to the default branch save. Other branches and pull
+      # requests restore the default branch's cache.
+      # https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy
+      SAVE_CACHE: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
     steps:
       - uses: actions/checkout@v7
       # The closure of all checks is large. GitHub documents 14 GB of SSD for
@@ -39,6 +59,39 @@ jobs:
       # feature. Same rule as
       # https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/
       - uses: cachix/install-nix-action@v31
+      # Must come after the Nix install: it merges the cached /nix/store and
+      # /nix/var/nix/db/db.sqlite into the new store. The post step (only if
+      # the job succeeds) optionally collects garbage and then saves /nix.
+      # Inputs: https://github.com/nix-community/cache-nix-action/blob/v7/action.yml
+      # Usage: https://github.com/nix-community/cache-nix-action/blob/v7/README.md
+      # GitHub evicts caches that nobody reads for 7 days.
+      - name: Restore and save the Nix store
+        uses: nix-community/cache-nix-action@v7
+        with:
+          # These file types are all the repository files that go into a
+          # derivation: Nix expressions, patches, the Octave/MATLAB .m files
+          # and shell scripts that the packages install, and mex-soversion.c.
+          # The key changes only if a derivation can change.
+          primary-key: nix-store-${{ hashFiles('flake.lock', '**/*.nix', '**/*.patch', '**/*.m', '**/*.sh', '**/*.c') }}
+          # On a miss, restore an older cache. Most paths in it are
+          # still valid, so only the changed derivations build again.
+          restore-prefixes-first-match: nix-store-
+          # The cache is a zstd tar of /nix. Measured on the closure of this
+          # flake's local builds: 16.6 GB of NARs compress to 5.5 GB (ratio
+          # 3.0). 20 GiB (21.5 GB) of store thus gives about 7 GB, which
+          # leaves headroom under the 10 GB repository limit. The garbage
+          # collector deletes paths in no useful order, so a later step makes GC
+          # roots for this run's local builds (about 14 GiB with their
+          # closures). Then only paths from cache.nixos.org can go.
+          gc-max-store-size-linux: 20G
+          save: ${{ env.SAVE_CACHE }}
+          # After a save, delete this branch's older caches. Keep the cache
+          # that was restored by the primary key, because nothing new was
+          # saved then.
+          purge: ${{ env.SAVE_CACHE }}
+          purge-prefixes: nix-store-
+          purge-created: 0
+          purge-primary-key: never
       # Fail early with a clear message instead of a "required system feature" error.
       - name: Check KVM
         run: |
@@ -47,3 +100,114 @@ jobs:
       # No userns sysctl here: the root nix-daemon builds in its own sandbox,
       # and nothing in the checks runs buildFHSEnv (bubblewrap) on the host.
       - run: nix flake check -L --keep-going
+      # Roots for every output and source in the build closure of the checks
+      # that did not come from cache.nixos.org (no signature), that is, the
+      # local builds and the flake inputs. Their closures survive the GC in
+      # the cache post step. The vendor paths among them are deleted in the
+      # next step regardless of roots.
+      - name: Keep local builds through the cache garbage collection
+        if: env.SAVE_CACHE == 'true'
+        run: |
+          set -euo pipefail
+          nix eval --json .#checks.x86_64-linux --apply 'builtins.mapAttrs (_: c: c.drvPath)' \
+            | jq -r '.[]' \
+            | xargs nix-store --query --requisites --include-outputs \
+            | grep -v '\.drv$' \
+            | nix path-info --sigs --stdin \
+            | awk '!/cache\.nixos\.org-1:/ { print $1 }' > "$RUNNER_TEMP/local-paths"
+          echo "Local paths to keep: $(wc -l < "$RUNNER_TEMP/local-paths")"
+          mapfile -t paths < "$RUNNER_TEMP/local-paths"
+          mkdir -p "$RUNNER_TEMP/gcroots"
+          nix-store --add-root "$RUNNER_TEMP/gcroots/local" --realise "${paths[@]}" > /dev/null
+      # Must stay the last step, so that nothing builds a vendor path again
+      # before the cache post step saves /nix.
+      - name: Remove unfree vendor packages from the store before the cache is saved
+        if: always()
+        run: |
+          set -euo pipefail
+          # All outputs of the vendor packages, their fixed-output sources,
+          # and the variants that contain them. pkgs is built with the same
+          # arguments as pkgsFor in flake.nix, so the paths match the checks.
+          # The Lab Python sets give the same paths as the base sets today;
+          # they are listed in case that changes.
+          # shellcheck disable=SC2016 # ${o} is Nix, not shell.
+          nix eval --json --impure --expr '
+            let
+              flake = builtins.getFlake (toString ./.);
+              pkgs = import flake.inputs.nixpkgs {
+                system = "x86_64-linux";
+                overlays = [ flake.overlays.default ];
+                config.allowUnfree = true;
+              };
+              inherit (pkgs) lib;
+              attrs = [
+                "eyelink-core"
+                "eyelink-core.src"
+                "eyelink-edfapi"
+                "eyelink-edfapi.src"
+                "vpixx-software-tools"
+                "vpixx-software-tools.src"
+                "psychopyPackages.sr-research-pylink"
+                "psychopyPackages.sr-research-pylink.src"
+                "psychopyPackages.pypixxlib"
+                "psychopyPackagesLab.sr-research-pylink"
+                "psychopyPackagesLab.pypixxlib"
+                "psychopy2024Packages.sr-research-pylink"
+                "psychopy2024Packages.sr-research-pylink.src"
+                "psychopy2024Packages.pypixxlib"
+                "psychopy2024PackagesLab.sr-research-pylink"
+                "psychopy2024PackagesLab.pypixxlib"
+                "psychtoolbox-3-eyelink"
+                "psychtoolbox-3-datapixx"
+                "psychtoolbox-3-lab"
+                "octave-psychtoolbox-eyelink"
+                "octave-psychtoolbox-datapixx"
+                "octave-psychtoolbox-lab"
+                "psychopy-env-lab"
+                "psychopy-app-lab"
+                "psychopy-studio-lab"
+                "psychopy-2024-env-lab"
+                "psychopy-2024-app-lab"
+                "ptb-matlab-mex-builder-lab"
+                "matlab-psychtoolbox-lab"
+              ];
+              outPaths =
+                attr:
+                let
+                  p = lib.getAttrFromPath (lib.splitString "." attr) pkgs;
+                in
+                map (o: p.${o}.outPath) (p.outputs or [ "out" ]);
+            in
+            lib.unique (lib.concatMap outPaths attrs)
+          ' | jq -r '.[]' > "$RUNNER_TEMP/vendor-paths"
+
+          # A failed or partial run builds only some of them.
+          : > "$RUNNER_TEMP/vendor-present"
+          while read -r p; do
+            if nix path-info "$p" > /dev/null 2>&1; then
+              echo "$p" >> "$RUNNER_TEMP/vendor-present"
+            fi
+          done < "$RUNNER_TEMP/vendor-paths"
+
+          if [ -s "$RUNNER_TEMP/vendor-present" ]; then
+            # Nix deletes a path only together with every path that refers
+            # to it. These referrers (VM test systems, environments, wrappers)
+            # contain or load the vendor files, so they must go too.
+            mapfile -t present < "$RUNNER_TEMP/vendor-present"
+            nix-store --query --referrers-closure "${present[@]}" | sort -u > "$RUNNER_TEMP/vendor-delete"
+            echo "Deleting $(wc -l < "$RUNNER_TEMP/vendor-delete") store paths"
+            # The daemon refuses --ignore-liveness, so run as root on the
+            # local store. --ignore-liveness also deletes paths that the GC
+            # roots of the previous step hold.
+            mapfile -t delete < "$RUNNER_TEMP/vendor-delete"
+            sudo "$(command -v nix)" store delete --ignore-liveness "${delete[@]}"
+          fi
+
+          # A failure here fails the job, and cache-nix-action saves only
+          # when the job succeeds.
+          while read -r p; do
+            if nix path-info "$p" > /dev/null 2>&1; then
+              echo "::error::$p is still in the store"
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/vendor-paths"
