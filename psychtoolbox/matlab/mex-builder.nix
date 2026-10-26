@@ -221,6 +221,11 @@ buildFHSEnv {
       # Propagated by the libx* dev outputs; buildFHSEnv does not follow
       # propagated inputs.
       p.xorgproto
+      # MATLAB's compiler configurations (bin/glnxa64/mexopts/gcc_glnxa64.xml
+      # and g++_glnxa64.xml) find the compiler with `which gcc` and
+      # `which g++`. buildFHSEnv and the fleet's fhsLibs have no `which`, so
+      # mex reports "Supported compiler not detected" (MATLAB:mex:NoCompilerFound).
+      p.which
       pkg-config
       patchelf
     ];

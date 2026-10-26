@@ -76,6 +76,12 @@ jobs:
           PATH=$MATLAB_ROOT/bin:$PATH exec "$RMC" "${cmd:?only -batch is supported}" "${opts[@]}"
           SHIM
           chmod +x "$shim"
+      # Shows how mex looks for the compiler (mex -setup -v, MATLAB's PATH,
+      # the gcc_glnxa64.xml of this release). Diagnosis only: the build runs
+      # even if this step fails.
+      - name: Diagnose mex compiler detection
+        continue-on-error: true
+        run: builder/bin/ptb-matlab-mex-builder --mex-setup --release "$MATLAB_RELEASE"
       - name: Build the mex files
         run: builder/bin/ptb-matlab-mex-builder --release "$MATLAB_RELEASE" --out "$MEX_OUT"
       # The fleet runs MATLAB in an FHS environment, and the store libraries

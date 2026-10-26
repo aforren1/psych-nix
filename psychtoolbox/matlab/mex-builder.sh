@@ -30,6 +30,7 @@ Usage:
   ptb-matlab-mex-builder --release RELEASE [--out DIR] [--modes "0 1 ..."] [--keep]
   ptb-matlab-mex-builder --dry-run [--release RELEASE] [--out DIR] [--modes "0 1 ..."]
   ptb-matlab-mex-builder --check-env [--modes "0 1 ..."]
+  ptb-matlab-mex-builder --mex-setup --release RELEASE
 
 Compiles the Psychtoolbox-3 $ptbVersion MATLAB mex files with
 $matlabRoot/RELEASE/bin/matlab and installs them into
@@ -44,6 +45,10 @@ DIR/$ptbVersion/RELEASE/PsychBasic. The default DIR is $out.
   --check-env        Check that the environment has the compiler, the
                      pkg-config modules, the headers and the libraries that
                      the mex calls use. Does not need MATLAB.
+  --mex-setup        Print how MATLAB's mex finds the compiler: mex -setup -v,
+                     the installed compiler configurations, MATLAB's PATH and
+                     gcc_glnxa64.xml. Does not build, and does not fail when
+                     MATLAB reports an error.
 EOF
 }
 
@@ -63,6 +68,7 @@ while [ $# -gt 0 ]; do
     --keep) keep=1; shift ;;
     --dry-run) action=dry-run; shift ;;
     --check-env) action=check-env; shift ;;
+    --mex-setup) action=mex-setup; shift ;;
     -h | --help) usage; exit 0 ;;
     *) usage >&2; die "unknown argument: $1" ;;
   esac
@@ -109,6 +115,22 @@ checkEnv() {
       printf '%-10s %s\n' "$tool" "$("$tool" --version 2>&1 | head -n 1)"
     else
       echo "MISSING: $tool"
+      failed=1
+    fi
+  done
+
+  # The probes of MATLAB's compiler configuration (bin/glnxa64/mexopts/
+  # gcc_glnxa64.xml and g++_glnxa64.xml, <locationFinder>): mex runs them
+  # through a shell. If one returns nothing, mex reports "Supported compiler
+  # not detected".
+  echo "== mex compiler probes"
+  local probe
+  for probe in "which gcc" "which g++" "gcc -dumpversion" "gcc -dumpmachine" \
+    "gcc -print-file-name=libstdc++.so" "g++ -print-file-name=libstdc++.so"; do
+    if result=$(env -i PATH=/usr/bin:/bin /bin/sh -c "$probe" 2>&1) && [ -n "$result" ]; then
+      echo "ok   $probe: $result"
+    else
+      echo "FAIL $probe: $result"
       failed=1
     fi
   done
@@ -213,6 +235,39 @@ batch+=" end,"
 batch+=" if ~isempty(failed), error('ptb:mexbuild', 'Failed modes: %s', mat2str(failed)); end"
 
 case "$action" in
+  mex-setup)
+    [ -n "$release" ] || die "--mex-setup needs --release"
+    matlab=$matlabRoot/$release/bin/matlab
+    echo "== Shell (outside MATLAB)"
+    for c in "command -v which gcc g++" "gcc -dumpversion" "gcc -dumpmachine" \
+      "gcc -print-file-name=libstdc++.so"; do
+      echo "\$ $c"
+      sh -c "$c" 2>&1 || true
+    done
+    # Each step in its own try, so that a failed mex -setup does not hide
+    # the rest. type() prints MathWorks' compiler configurations of this
+    # release, with their <locationFinder> probes.
+    setup="for lang = {'C', 'C++'},"
+    setup+=" fprintf('== mex -setup -v %s\n', lang{1});"
+    setup+=" try, mex('-v', '-setup', lang{1}); catch e, disp(getReport(e)); end,"
+    setup+=" try, disp(mex.getCompilerConfigurations(lang{1}, 'Installed')); catch e, disp(getReport(e)); end,"
+    setup+=" end,"
+    setup+=" fprintf('== MATLAB environment\n');"
+    setup+=" fprintf('PATH=%s\nLD_LIBRARY_PATH=%s\nSHELL=%s\n', getenv('PATH'), getenv('LD_LIBRARY_PATH'), getenv('SHELL'));"
+    setup+=" system('command -v which; which gcc; which g++; gcc -dumpversion; gcc -dumpmachine; gcc -print-file-name=libstdc++.so; ls -la /usr/bin/gcc /usr/lib/libstdc++.so');"
+    setup+=" for f = {'gcc_glnxa64.xml', 'g++_glnxa64.xml'},"
+    setup+=" x = fullfile(matlabroot, 'bin', computer('arch'), 'mexopts', f{1});"
+    setup+=" fprintf('== %s\n', x); try, type(x); catch e, disp(getReport(e)); end,"
+    setup+=" end"
+    if [ ! -x "$matlab" ]; then
+      echo "MATLAB not found at $matlab. It would run:"
+      echo "$matlab -batch \"$setup\""
+      exit 1
+    fi
+    echo "== MATLAB ($matlab)"
+    "$matlab" -batch "$setup" || echo "MATLAB exited with status $?"
+    exit 0
+    ;;
   check-env)
     checkEnv
     exit 0
