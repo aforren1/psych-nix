@@ -86,13 +86,17 @@ trap cleanup EXIT
 # (see dry-run/). Prints them in MATLAB syntax. With an argument, also
 # writes one record for each call to that file.
 listMex() {
+  # The stubs are loaded with addpath inside the evaluated code, not with the
+  # --path option: on a GitHub runner the option left IsLinux undefined.
+  [ -f "$dryRunStubs/IsLinux.m" ] || die "dry-run stubs not found: $dryRunStubs"
   (
     cd "$source/PsychSourceGL/Source"
     PTB_SOURCE=$source PTB_ROOT=$work/ptb/Psychtoolbox/ PTB_MEX_RECORDS=${1:-} \
       HOME=$work OCTAVE_HISTFILE=/dev/null \
       "$octave/bin/octave-cli" --no-init-file --quiet --no-window-system \
-      --path "$dryRunStubs" \
-      --eval "for m = [${modes[*]}]; linuxmakeit64(m); end"
+      --eval "addpath('$dryRunStubs'); \
+              if exist('IsLinux', 'file') ~= 2, disp(path()); error('IsLinux is not on the path'); end; \
+              for m = [${modes[*]}]; linuxmakeit64(m); end"
   )
 }
 
