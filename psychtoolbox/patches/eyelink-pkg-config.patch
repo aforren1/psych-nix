@@ -1,0 +1,24 @@
+Description: Build Eyelink.mex against the Nix eyelink-core package
+ Upstream skips Eyelink in Debian/dfsg builds (neurodebianbuild=1), because
+ the SR Research SDK is not free. Nix builds with that flag, so build Eyelink
+ whenever mode 4 is requested; the package only requests it with the SDK.
+ Get the EyeLink include path from pkg-config, as use-pkg-config.patch does
+ for the other modules; apply after that patch, which adds the helper.
+Forwarded: not-needed
+---
+--- a/PsychSourceGL/Source/linuxmakeitoctave3.m
++++ b/PsychSourceGL/Source/linuxmakeitoctave3.m
+@@ -143,10 +143,11 @@
+     unix(['cp ../Projects/Linux/build/PsychPortAudio.mex ' PsychtoolboxRoot target]);
+ end
+ 
+-if mode==4 && ~neurodebianbuild
++if mode==4
+     % Build Eyelink.mex: Needs Eyelink SDK (eyelink_core component) from SR-Research.
+     % See https://www.sr-research.com/support/docs.php?topic=linuxsoftware for install instructions.
+-    mex --output ../Projects/Linux/build/Eyelink.mex -Wno-date-time -Wno-deprecated-declarations -DPTBMODULE_Eyelink -DPTBOCTAVE3MEX -I/usr/include/EyeLink -ICommon/Base -ILinux/Base -ICommon/Eyelink -ICommon/Screen  Linux/Base/*.c Common/Base/*.c Common/Eyelink/*.c -leyelink_core -lc -lrt -ldl
++    iflags = pkgconfig_iflags('eyelink_core');
++    mex("--output", "../Projects/Linux/build/Eyelink.mex", "-Wno-date-time", "-Wno-deprecated-declarations", "-DPTBMODULE_Eyelink", "-DPTBOCTAVE3MEX", iflags{:}, "-ICommon/Base", "-ILinux/Base", "-ICommon/Eyelink", "-ICommon/Screen", "Linux/Base/*.c", "Common/Base/*.c", "Common/Eyelink/*.c", "-leyelink_core", "-lc", "-lrt", "-ldl");
+     unix(['cp ../Projects/Linux/build/Eyelink.mex ' PsychtoolboxRoot target]);
+ end
+ 

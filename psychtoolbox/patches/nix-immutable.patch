@@ -1,0 +1,132 @@
+Description: Do not run sudo setup from the read-only Nix store
+ PsychLinuxConfiguration copies files into /etc with sudo. On NixOS the
+ programs.psychtoolbox module does this, so the function only prints a hint.
+ AssertOpenGL tries to sudo ln -s a libdc1394 soname into /lib, which is
+ meaningless on Nix because Screen links its own libdc1394.
+Forwarded: not-needed
+---
+Only in a: PsychSourceGL
+--- a/Psychtoolbox/PsychLinuxConfiguration.m
++++ b/Psychtoolbox/PsychLinuxConfiguration.m
+@@ -1,6 +1,10 @@
+ function usedAnswers = PsychLinuxConfiguration(answers, dontshowad)
+ % PsychLinuxConfiguration([answers]) -- Optimize setup of Linux system.
+ %
++% Nix: this function does nothing. Psychtoolbox lives in the read-only
++% Nix store, and the system setup below is done declaratively by the NixOS
++% option programs.psychtoolbox.enable.
++%
+ % This script modifies system settings and configuration files
+ % to optimize a Linux system for use with Psychtoolbox.
+ %
+@@ -82,6 +86,13 @@
+ %                  FeralInteractive gamemode package, to switch supported gpu's into
+ %                  high-performance mode for Priority() > 0, and do possible other PTB
+ %                  specific optimizations beyond the default optims of the gamemode package.
++
++% Nix: skip the sudo based setup. See the help text.
++usedAnswers = '';
++fprintf('PsychLinuxConfiguration: Not needed. On NixOS, set programs.psychtoolbox.enable = true;\n');
++fprintf('PsychLinuxConfiguration: It installs the udev rules, realtime limits and the psychtoolbox group.\n');
++return;
++
+ rerun = 0;
+ updateinitramfs = 0;
+ 
+--- a/Psychtoolbox/PsychOneliners/AssertOpenGL.m
++++ b/Psychtoolbox/PsychOneliners/AssertOpenGL.m
+@@ -160,90 +160,12 @@
+                 fprintf('\n');
+                 error('Matlab bug -- Outdated/Defective libz installed. Follow above workarounds.');
+             end
+-
+-            % The Octave Screen.mex file is built to depend on the libdc1394
+-            % version that is installed on the build system == target
+-            % system, so stuff should just work(tm).
+-            %
+-            % The Matlab mexa64 files however are built on Ubuntu 20.04 LTS
+-            % atm., linking against libdc1394.so.25, and so Screen.mexa64
+-            % depends on exactly libdc1394.so.25. Ubuntu 20.10 and later
+-            % ship with libdc1394.so.25 only, so all is good there. But Ubuntu 20.04
+-            % may not in a standard install -> link failure. Try to work around this
+-            % by automatically creating a suitable symlink from the required libdc1394.so.25
+-            % to the available libdc1394.so.22:
+-            if ~isempty(strfind(s.message, 'libdc1394.so.25')) && exist('/lib/x86_64-linux-gnu/libdc1394.so.22', 'file') && ~exist('/lib/x86_64-linux-gnu/libdc1394.so.25', 'file')
+-                cmd = 'sudo -S ln -s /lib/x86_64-linux-gnu/libdc1394.so.22 /lib/x86_64-linux-gnu/libdc1394.so.25';
+-
+-                fprintf('Seems your Linux distribution may be missing a suitable and functional libdc1394.so.25 library.\n');
+-                fprintf('We probably can fix this problem by creating a symlink from the required libdc1394.so.25 to\n');
+-                fprintf('the available libdc1394.so.22 by executing the following command as system administrator:\n\n');
+-                fprintf('Command to execute: ''%s''\n\n', cmd);
+-                fprintf('This will require you to enter your admin (sudo) password if you are a system administrator. Or you\n');
+-                fprintf('can ask your system administrator to execute the above ''Command to execute'' inside a terminal window\n');
+-                fprintf('and then just press enter when asked here for a sudo password.\n');
+-                fprintf('Your choice. Will now call above command, which will prompt for the password...\n\n');
+-                [rc, msg] = system(cmd, '-echo');
+-                if (rc == 0) && exist('/lib/x86_64-linux-gnu/libdc1394.so.25', 'file')
+-                    fprintf('It worked! Retrying if Screen() now works...\n');
+-                else
+-                    fprintf('Failed or aborted with error: %s\n', msg);
+-                    fprintf('Will retry Screen() anyway, maybe you fixed it manually in the meantime...\n');
+-                end
+-
+-                try
+-                    value = Screen('Preference', 'SkipSyncTests'); %#ok<NASGU>
+-                    fprintf('Success! We can carry on as usual, thank you for your cooperation. Case closed! :)\n\n\n');
+-                    psychlasterror('reset');
+-                    return;
+-                catch
+-                    fprintf('This still does not work for some reason. Guess this will need help from a human...\n');
+-                end
+-            else
+-                fprintf('The library seems to exist in a suitable version, but something related to that library\n');
+-                fprintf('is borked. This needs some human help from a capable human brain, sorry.\n');
+-            end
+-        else
+-            % Octave specific troubleshooting:
+-            if IsARM
+-                tarch = 'arm-linux-gnueabihf';
+-            else
+-                tarch = 'x86_64-linux-gnu';
+-            end
+-
+-            if ~isempty(strfind(s.message, 'libdc1394.so.25')) && exist(['/lib/' tarch '/libdc1394.so.22'], 'file') && ~exist(['/lib/' tarch '/libdc1394.so.25'], 'file')
+-                cmd = ['sudo -S ln -s /lib/' tarch '/libdc1394.so.22 /lib/' tarch '/libdc1394.so.25'];
+-
+-                fprintf('Seems your Linux distribution may be missing a suitable and functional libdc1394.so.25 library.\n');
+-                fprintf('We probably can fix this problem by creating a symlink from the required libdc1394.so.25 to\n');
+-                fprintf('the available libdc1394.so.22 by executing the following command as system administrator:\n\n');
+-                fprintf('Command to execute: ''%s''\n\n', cmd);
+-                fprintf('This will require you to enter your admin (sudo) password if you are a system administrator. Or you\n');
+-                fprintf('can ask your system administrator to execute the above ''Command to execute'' inside a terminal window\n');
+-                fprintf('and then just press enter when asked here for a sudo password.\n');
+-                fprintf('Your choice. Will now call above command, which will prompt for the password...\n\n');
+-                [rc, msg] = system(cmd, '-echo');
+-                if (rc == 0) && exist(['/lib/' tarch '/libdc1394.so.25'], 'file')
+-                    fprintf('It worked! Retrying if Screen() now works...\n');
+-                else
+-                    fprintf('Failed or aborted with error: %s\n', msg);
+-                    fprintf('Will retry Screen() anyway, maybe you fixed it manually in the meantime...\n');
+-                end
+-
+-                try
+-                    value = Screen('Preference', 'SkipSyncTests'); %#ok<NASGU>
+-                    fprintf('Success! We can carry on as usual, thank you for your cooperation. Case closed! :)\n\n\n');
+-                    psychlasterror('reset');
+-                    return;
+-                catch
+-                    fprintf('This still does not work for some reason. Guess this will need help from a human...\n');
+-                end
+-            else
+-                fprintf('The library seems to exist in a suitable version, but something related to that library\n');
+-                fprintf('is borked. This needs some human help from a capable human brain, sorry.\n');
+-            end
+         end
+ 
++        % Nix: the upstream sudo ln -s workaround for a missing libdc1394.so.25
++        % is removed. The store is read-only, and Screen links the exact
++        % libdc1394 it was built against.
++
+         fprintf('\n');
+         fprintf('Screen() on GNU/Linux needs the following 3rd party libraries\n');
+         fprintf('to function correctly. If you get "Invalid MEX file errors",\n');

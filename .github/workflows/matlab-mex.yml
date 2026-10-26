@@ -1,0 +1,128 @@
+# Builds the PTB MATLAB mex files with a MATLAB from setup-matlab and loads
+# them through matlab-psychtoolbox, as in "Build the Psychtoolbox mex files
+# for MATLAB" in README.md.
+#
+# Licensing (https://github.com/matlab-actions/setup-matlab#licensing):
+# public repositories need no license. Private repositories need a MATLAB
+# batch licensing token as the repository secret MLM_LICENSE_TOKEN.
+name: MATLAB mex files
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: MATLAB release, for example R2024b or R2025a
+        default: R2024b
+  push:
+    paths: ["psychtoolbox/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  mex:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      MATLAB_RELEASE: ${{ inputs.release || 'R2024b' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      # Ubuntu 24.04 blocks unprivileged user namespaces, which bubblewrap
+      # (buildFHSEnv) needs. https://github.com/actions/runner-images/issues/10443
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: nix build -L .#ptb-matlab-mex-builder -o builder
+      # Fails fast, before the MATLAB download. Does not start MATLAB.
+      - run: builder/bin/ptb-matlab-mex-builder --check-env
+      - id: matlab
+        uses: matlab-actions/setup-matlab@v3
+        with:
+          release: ${{ env.MATLAB_RELEASE }}
+          products: MATLAB # mex is part of MATLAB.
+          cache: true
+      # A plain `matlab -batch` gets no license with setup-matlab v2 and later;
+      # only the run-* actions and their run-matlab-command helper license
+      # MATLAB. https://github.com/matlab-actions/setup-matlab/issues/89 and
+      # /issues/110. The builder and the wrapper call `matlab -batch`, so
+      # /opt/matlab/<release>/bin/matlab is a shim to run-matlab-command, not
+      # a link to the MATLAB root. The helper is undocumented and can change.
+      - name: Install the licensing shim at /opt/matlab
+        env:
+          TOKEN: ${{ secrets.MLM_LICENSE_TOKEN }}
+        run: |
+          rmc=$RUNNER_TEMP/run-matlab-command
+          curl -fsSL -o "$rmc" https://ssd.mathworks.com/supportfiles/ci/run-matlab-command/v2/glnxa64/run-matlab-command
+          chmod +x "$rmc"
+          # bubblewrap passes the environment through to the shim.
+          {
+            echo "RMC=$rmc"
+            echo "MATLAB_ROOT=${{ steps.matlab.outputs.matlabroot }}"
+            echo "MW_BATCH_LICENSING_ONLINE=true" # As run-command sets it.
+            echo "MEX_OUT=$RUNNER_TEMP/ptb-matlab"
+            [ -z "$TOKEN" ] || echo "MLM_LICENSE_TOKEN=$TOKEN"
+          } >>"$GITHUB_ENV"
+          shim=/opt/matlab/$MATLAB_RELEASE/bin/matlab
+          sudo install -d -o "$USER" "$(dirname "$shim")"
+          cat >"$shim" <<'SHIM'
+          #!/usr/bin/env bash
+          # `matlab [OPTIONS] -batch CMD` -> `run-matlab-command CMD [OPTIONS]`
+          opts=()
+          while [ $# -gt 0 ]; do
+            case $1 in
+              -batch) cmd=$2; shift 2 ;;
+              *) opts+=("$1"); shift ;;
+            esac
+          done
+          PATH=$MATLAB_ROOT/bin:$PATH exec "$RMC" "${cmd:?only -batch is supported}" "${opts[@]}"
+          SHIM
+          chmod +x "$shim"
+      - name: Build the mex files
+        run: builder/bin/ptb-matlab-mex-builder --release "$MATLAB_RELEASE" --out "$MEX_OUT"
+      # The fleet runs MATLAB in an FHS environment, and the store libraries
+      # need its glibc (2.42), not Ubuntu's (2.39). This `matlab` has the same
+      # libraries as the builder and starts the shim.
+      - name: Build matlab-psychtoolbox for these mex files
+        run: |
+          echo "MEX_DIR=$MEX_OUT/$(nix eval --raw .#ptb-matlab-mex-builder.psychtoolbox.version)/$MATLAB_RELEASE/PsychBasic" >>"$GITHUB_ENV"
+          # shellcheck disable=SC2016 # ${release} is Nix, not shell.
+          nix build -L --impure -o wrapper --expr '
+            let
+              flake = builtins.getFlake (toString ./.);
+              pkgs = import flake.inputs.nixpkgs {
+                system = "x86_64-linux";
+                overlays = [ flake.overlays.default ];
+                config.allowUnfree = true;
+              };
+              release = builtins.getEnv "MATLAB_RELEASE";
+              matlab = pkgs.buildFHSEnv {
+                name = "matlab";
+                inherit (pkgs.ptb-matlab-mex-builder.args) targetPkgs extraOutputsToInstall;
+                runScript = "/opt/matlab/${release}/bin/matlab";
+              };
+            in
+            pkgs.matlab-psychtoolbox.override { inherit matlab release; mexDir = builtins.getEnv "MEX_DIR"; }'
+      # The nixpkgs ldd uses no host library cache, so a library that the
+      # DT_RPATH misses shows as "not found". MATLAB supplies libmx, libmex, libmat.
+      - name: Check the libraries of each mex file
+        run: |
+          ldd=$(nix build --no-link --print-out-paths --inputs-from . 'nixpkgs#glibc^bin')/bin/ldd
+          shopt -s failglob
+          for f in "$MEX_DIR"/*.mexa64; do
+            missing=$(env -u LD_LIBRARY_PATH "$ldd" "$f" | grep 'not found' | grep -vE '^\s*lib(mx|mex|mat)\.so' || true)
+            [ -z "$missing" ] || { echo "::error::$f: $missing"; exit 1; }
+          done
+      - name: Load the mex files in MATLAB
+        run: |
+          cmd="s = which('Screen'); disp(s);"
+          cmd+=" assert(startsWith(s, '$MEX_DIR'), 'Screen is not from the mex folder');"
+          cmd+=" disp(Screen('Version')); disp(GetSecs); WaitSecs(0.01);"
+          cmd+=" disp(PsychPortAudio('Version')); PsychtoolboxVersion"
+          wrapper/bin/matlab-psychtoolbox -batch "$cmd"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ptb-matlab-mex-${{ env.MATLAB_RELEASE }}
+          # `runtime` is a GC root link into the store; it means nothing elsewhere.
+          path: |
+            ${{ runner.temp }}/ptb-matlab
+            !${{ runner.temp }}/ptb-matlab/**/runtime

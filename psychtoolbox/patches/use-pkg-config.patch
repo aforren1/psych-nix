@@ -1,0 +1,46 @@
+Description: Use pkg-config instead of hardcoded FHS include paths
+ Screen (mode 0) and PsychHID (mode 8) hardcode /usr/include/... and Debian
+ multiarch paths. Ask pkg-config instead, so the build works on Nix.
+ Converts the mex calls to function syntax so the flag list can be spliced in.
+Origin: Ported from Debian use_pkg-fonfig_to_obtain_triplets.patch (3.0.22.3+dfsg-4), extended to libxml2 and libusb-1.0.
+---
+--- a/PsychSourceGL/Source/linuxmakeitoctave3.m
++++ b/PsychSourceGL/Source/linuxmakeitoctave3.m
+@@ -88,7 +88,8 @@
+     % Build Screen.mex:
+ 
+     % Build against system installed GStreamer-1.8+, ideally 1.18+.
+-    mex "-W -std=gnu99 -Wno-stringop-truncation" --output ../Projects/Linux/build/Screen.mex -Wno-date-time -DPTBMODULE_Screen -DPTB_USE_GSTREAMER -DPTBVIDEOCAPTURE_LIBDC -DPTB_USE_NVSTUSB -DGLEW_STATIC -DPTBOCTAVE3MEX -D_GNU_SOURCE -I/usr/X11R6/include -I/usr/include/gstreamer-1.0 -I/usr/lib/x86_64-linux-gnu/gstreamer-1.0/include -I/usr/lib/i386-linux-gnu/gstreamer-1.0/include -I/usr/include/glib-2.0 -I/usr/lib/glib-2.0/include -I/usr/lib/i386-linux-gnu/glib-2.0/include -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -I/usr/lib/arm-linux-gnueabihf/glib-2.0/include -I/usr/lib64/glib-2.0/include -I/usr/include/libxml2 -I../Cohorts/libnvstusb-code-32/include -ICommon/Base -ICommon/Screen -ILinux/Base -ILinux/Screen -L/usr/X11R6/lib Linux/Base/*.c Linux/Screen/*.c Common/Screen/*.c Common/Base/*.c Common/Screen/tinyexr.cc -lc -ldl -lrt -lGL -lGLU -lX11 -lXext -lX11-xcb -lxcb -lxcb-dri3 -lxcb-present -lgstreamer-1.0 -lgstbase-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstpbutils-1.0 -lgobject-2.0 -lgmodule-2.0 -lxml2 -lgthread-2.0 -lglib-2.0 -lXxf86vm -ldc1394 -lusb-1.0 -lpciaccess -lXi -lXrandr -lXfixes -lXcomposite
++    iflags = pkgconfig_iflags('gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-pbutils-1.0 glib-2.0 libxml-2.0');
++    mex("-W -std=gnu99 -Wno-stringop-truncation", "--output", "../Projects/Linux/build/Screen.mex", "-Wno-date-time", "-DPTBMODULE_Screen", "-DPTB_USE_GSTREAMER", "-DPTBVIDEOCAPTURE_LIBDC", "-DPTB_USE_NVSTUSB", "-DGLEW_STATIC", "-DPTBOCTAVE3MEX", "-D_GNU_SOURCE", "-I../Cohorts/libnvstusb-code-32/include", "-ICommon/Base", "-ICommon/Screen", "-ILinux/Base", "-ILinux/Screen", iflags{:}, "Linux/Base/*.c", "Linux/Screen/*.c", "Common/Screen/*.c", "Common/Base/*.c", "Common/Screen/tinyexr.cc", "-lc", "-ldl", "-lrt", "-lGL", "-lGLU", "-lX11", "-lXext", "-lX11-xcb", "-lxcb", "-lxcb-dri3", "-lxcb-present", "-lgstreamer-1.0", "-lgstbase-1.0", "-lgstapp-1.0", "-lgstvideo-1.0", "-lgstpbutils-1.0", "-lgobject-2.0", "-lgmodule-2.0", "-lxml2", "-lgthread-2.0", "-lglib-2.0", "-lXxf86vm", "-ldc1394", "-lusb-1.0", "-lpciaccess", "-lXi", "-lXrandr", "-lXfixes", "-lXcomposite");
+ 
+     unix(['cp ../Projects/Linux/build/Screen.mex ' PsychtoolboxRoot target]);
+ end
+@@ -189,7 +190,8 @@
+ 
+ if mode==8
+     % Build PsychHID.mex:
+-    mex --output ../Projects/Linux/build/PsychHID.mex -Wno-date-time -Wno-deprecated-declarations -DPTBMODULE_PsychHID -DPTBOCTAVE3MEX -I/usr/include/libusb-1.0 -ICommon/Base -ILinux/Base -ICommon/PsychHID -ILinux/PsychHID -ICommon/Screen  Linux/Base/*.c Common/Base/*.c Common/PsychHID/*.c Linux/PsychHID/*.c -lc -ldl -lrt -lusb-1.0 -lX11 -lXi -lutil
++    iflags = pkgconfig_iflags('libusb-1.0');
++    mex("--output", "../Projects/Linux/build/PsychHID.mex", "-Wno-date-time", "-Wno-deprecated-declarations", "-DPTBMODULE_PsychHID", "-DPTBOCTAVE3MEX", iflags{:}, "-ICommon/Base", "-ILinux/Base", "-ICommon/PsychHID", "-ILinux/PsychHID", "-ICommon/Screen", "Linux/Base/*.c", "Common/Base/*.c", "Common/PsychHID/*.c", "Linux/PsychHID/*.c", "-lc", "-ldl", "-lrt", "-lusb-1.0", "-lX11", "-lXi", "-lutil");
+     unix(['cp ../Projects/Linux/build/PsychHID.mex ' PsychtoolboxRoot target]);
+ end
+ 
+@@ -294,6 +296,17 @@
+ return;
+ end
+ 
++% Ask pkg-config for include flags instead of hardcoding FHS and multiarch
++% paths, so the build works outside of Debian/Ubuntu.
++function flags = pkgconfig_iflags(pkgs)
++  [rc, out] = system(['pkg-config --cflags-only-I ' pkgs]);
++  if rc ~= 0
++    error('pkg-config failed for: %s', pkgs);
++  end
++  flags = strsplit(strtrim(out));
++  flags = flags(~cellfun('isempty', flags));
++end
++
+ % Our own override implementation of mex(), shadowing
+ % octave's mex.m . This one uses glob() to glob-expand all
+ % *.c shell patterns to corresponding lists of source

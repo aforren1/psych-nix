@@ -1,0 +1,34 @@
+Description: Build PsychCV and PsychOpenXRCore without /usr/include probes
+ Upstream only builds them if /usr/include/apriltag or /usr/include/openxr
+ exists, which is never true on Nix. Build them unconditionally, get the
+ apriltag include path from pkg-config, and drop -lapriltag-utils, which
+ upstream apriltag does not install.
+Forwarded: not-needed
+---
+--- a/PsychSourceGL/Source/linuxmakeitoctave3.m
++++ b/PsychSourceGL/Source/linuxmakeitoctave3.m
+@@ -208,9 +208,12 @@
+     cd(curdir);
+ end
+ 
+-if mode == 10 && exist('/usr/include/apriltag', 'dir')
+-    % Build PsychCV
+-    mex --output ../Projects/Linux/build/PsychCV.mex -Wno-date-time -DPTBMODULE_PsychCV -DPTBOCTAVE3MEX -DPSYCHCV_USE_APRILTAGS -I/usr/include/apriltag -ICommon/Base -ICommon/PsychCV -ILinux/Base Common/Base/*.c Linux/Base/*.c Common/PsychCV/*.c -lc -lrt -ldl -lglut -lapriltag -lapriltag-utils
++if mode == 10
++    % Build PsychCV. Upstream apriltag builds the common/ helpers into
++    % libapriltag itself (no libapriltag-utils), and PsychCV includes its
++    % headers without the apriltag/ prefix.
++    iflags = strcat(pkgconfig_iflags('apriltag'), '/apriltag');
++    mex("--output", "../Projects/Linux/build/PsychCV.mex", "-Wno-date-time", "-DPTBMODULE_PsychCV", "-DPTBOCTAVE3MEX", "-DPSYCHCV_USE_APRILTAGS", iflags{:}, "-ICommon/Base", "-ICommon/PsychCV", "-ILinux/Base", "Common/Base/*.c", "Linux/Base/*.c", "Common/PsychCV/*.c", "-lc", "-lrt", "-ldl", "-lglut", "-lapriltag");
+     %mex --output ../Projects/Linux/build/PsychCV.mex -Wno-date-time -DPTBMODULE_PsychCV -DPTBOCTAVE3MEX -DPSYCHCV_USE_APRILTAGS -DPSYCHCV_USE_ARTOOLKIT -I/usr/include/apriltag -ICommon/Base -ICommon/PsychCV -ILinux/Base -I../Cohorts/ARToolkit/include  Common/Base/*.c Linux/Base/*.c Common/PsychCV/*.c -lc -lrt -ldl -lglut -lapriltag -lapriltag-utils /usr/local/lib/libARMulti.a /usr/local/lib/libARgsub.a /usr/local/lib/libARgsub_lite.a /usr/local/lib/libARgsubUtil.a /usr/local/lib/libAR.a
+     %mex --output ../Projects/Linux/build/PsychCV.mex -Wno-date-time -DPTBMODULE_PsychCV -DPTBOCTAVE3MEX -DPSYCHCV_USE_APRILTAGS -DPSYCHCV_USE_ARTOOLKIT -DPSYCHCV_USE_OPENCV -I/usr/include/apriltag -ICommon/Base -ICommon/PsychCV -ILinux/Base -I../Cohorts/ARToolkit/include -I/usr/include/opencv Common/Base/*.c Linux/Base/*.c Common/PsychCV/*.c Common/PsychCV/OpenEyesCVEyeTracker/*.cc -lc -lrt -ldl -lglut -lapriltag -lapriltag-utils -lopencv_core -lopencv_imgproc -lopencv_highgui /usr/local/lib/libARMulti.a /usr/local/lib/libARgsub.a /usr/local/lib/libARgsub_lite.a /usr/local/lib/libARgsubUtil.a /usr/local/lib/libAR.a
+     unix(['cp ../Projects/Linux/build/PsychCV.mex ' PsychtoolboxRoot target]);
+@@ -277,7 +280,7 @@
+     unix(['cp ../Projects/Linux/build/PsychVulkanCore.mex ' PsychtoolboxRoot target]);
+ end
+ 
+-if mode==16 && exist('/usr/include/openxr', 'dir')
++if mode==16
+     % Build PsychOpenXRCore.mex:
+     try
+         mex --output ../Projects/Linux/build/PsychOpenXRCore.mex -Wno-date-time -DPTBMODULE_PsychOpenXRCore -DPTBOCTAVE3MEX -D_GNU_SOURCE -ICommon/Base -ILinux/Base -ICommon/PsychOpenXRCore -ICommon/PsychOpenXRCore/nanopb Linux/Base/*.c Common/Base/*.c Common/PsychOpenXRCore/*.c Common/PsychOpenXRCore/nanopb/*.c -lc -lrt -ldl -lopenxr_loader

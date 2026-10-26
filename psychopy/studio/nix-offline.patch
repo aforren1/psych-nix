@@ -1,0 +1,211 @@
+diff -ru a/electron/src/python/liaison.js b/electron/src/python/liaison.js
+--- a/electron/src/python/liaison.js
++++ b/electron/src/python/liaison.js
+@@ -2,7 +2,7 @@
+ import { getVenv } from "./venv.js";
+ import logging from "../logging.js";
+ import { output, decoder, getSafeAddress } from "./utils.js";
+-import { appVersion } from "../version.js";
++import { psychopyVersion as appVersion } from "../version.js";
+ import path from "path";
+ 
+ 
+diff -ru a/electron/src/python/uv.js b/electron/src/python/uv.js
+--- a/electron/src/python/uv.js
++++ b/electron/src/python/uv.js
+@@ -5,7 +5,7 @@
+ import { extract as unzip } from "@electron-internal/extract-zip";
+ import { extract as untar } from "tar";
+ import { execSync, execTracked, output } from "./utils.js";
+-import { appVersion } from "../version.js";
++import { psychopyVersion as appVersion } from "../version.js";
+ 
+ 
+ export class UV {
+@@ -96,9 +96,8 @@
+      * Path to the uv executable
+      */
+     get executable() {
+-        return path.join(
+-            this.uvFolder, "uv"
+-        )
++        // Nix provides uv; never download it.
++        return "@uv@"
+     }
+ 
+     /**
+@@ -108,7 +107,7 @@
+         // wait until folder has been specified
+         await this.folderSpecified.promise
+ 
+-        return fs.globSync("uv*", {cwd: this.uvFolder}).length
++        return fs.existsSync(this.executable)
+     }
+ 
+     /**
+@@ -135,8 +134,8 @@
+      * Install the uv executables
+      */
+     async install() {
+-        // wait until folder has been specified
+-        await this.folderSpecified.promise
++        // Nix provides uv; never download it.
++        return
+         // make sure folders exist
+         for (let folder of [this.uvFolder, this.pyFolder]) {
+             if (!fs.existsSync(folder)) {
+@@ -276,7 +275,14 @@
+         )
+         // try using UV to search for a Python executable
+         try {
+-            return this.execSync(["python", "find", `"${folder}"`])
++            let executable = this.execSync(["python", "find", `"${folder}"`])
++            // A venv left over from an older Nix generation would keep using
++            // that generation's packages; report it as missing so it gets
++            // recreated against the current environment.
++            if (!fs.realpathSync(executable).startsWith("@python@/")) {
++                return
++            }
++            return executable
+         } catch (err) {
+             // if this fails, return undefined (as there is none)
+             return
+@@ -309,7 +315,7 @@
+         }
+         try {
+             await this.execTracked([
+-                "venv", folder, "--python", pythonVersion, "--clear"
++                "venv", folder, "--python", "@python@/bin/python3", "--system-site-packages", "--clear"
+             ])
+         } catch (err) {
+             // on Mac, we might need to install Rosetta first
+@@ -326,7 +332,7 @@
+                 )
+                 // make venv again - this time with Rosetta
+                 await this.execTracked([
+-                    "venv", folder, "--python", pythonVersion, "--clear"
++                    "venv", folder, "--python", "@python@/bin/python3", "--system-site-packages", "--clear"
+                 ])
+             } else {
+                 throw err
+diff -ru a/electron/src/python/venv.js b/electron/src/python/venv.js
+--- a/electron/src/python/venv.js
++++ b/electron/src/python/venv.js
+@@ -1,6 +1,6 @@
+ import { uv } from "./uv.js";
+-import { execSync, execTracked, output } from "./utils.js";
+-import { appVersion } from "../version.js";
++import { execSync, execTracked, output, decoder } from "./utils.js";
++import { psychopyVersion as appVersion } from "../version.js";
+ import logging from "../logging.js";
+ import proc from "child_process";
+ import process from "process";
+@@ -71,8 +71,8 @@
+         // make one if there isn't one
+         if (!this.executable) {
+             this.executable = await uv.makeExecutable(
+-                psychopyVersion,
+-                pythonVersion
++                this.psychopyVersion,
++                this.pythonVersion
+             )
+         }
+         // get installed packages so we know what needs installing
+@@ -91,7 +91,7 @@
+             }
+         }
+         // install psychopy library
+-        if (!("psychopy-lib" in installed)) {
++        if (!("psychopy-lib" in installed || "psychopy" in installed)) {
+             if (this.psychopyVersion === "dev") {
+                 // for dev environment, install from dev branch
+                 await this.installPackage("https://github.com/psychopy/psychopy/archive/refs/heads/dev.zip")
+@@ -165,19 +165,19 @@
+      * @returns {object<string:string>} Object mapping package names to their version
+      */
+     getPackages() {
+-        // get package list from pip
+-        let resp = uv.execSync([
+-            "pip", "list", "--python", `"${this.executable}"`, "--format", "json"
+-        ], undefined, "uv", true)
+-        // parse it
+-        let parsed = JSON.parse(resp)
+-        // simplify structure
+-        let output = {}
+-        parsed.forEach(
+-            profile => output[profile.name] = profile.version
+-        )
++        // `uv pip list` ignores system site packages, where Nix puts PsychoPy
++        // and its dependencies, so ask the interpreter instead. Names are
++        // normalized like uv's; the first match on sys.path wins, as on import.
++        let resp = proc.execFileSync(this.executable, ["-I", "-c", [
++            "import importlib.metadata as m, json, re",
++            "out = {}",
++            "for d in m.distributions():",
++            "    n = re.sub(r'[-_.]+', '-', d.metadata['Name'] or '').lower()",
++            "    out.setdefault(n, d.version)",
++            "print(json.dumps(out))",
++        ].join("\n")])
+     
+-        return output
++        return JSON.parse(decoder.decode(resp))
+     }
+ 
+     /**
+diff -ru a/electron/src/version.js b/electron/src/version.js
+--- a/electron/src/version.js
++++ b/electron/src/version.js
+@@ -11,6 +11,12 @@
+     }
+ }
+ 
+-export const appVersion = app.isPackaged ? app.getVersion() : "dev";
++// Nix runs the app through the stock electron binary, so app.isPackaged is
++// false even for this production build.
++export const appVersion = app.getVersion();
+ 
+-export const isDev = !app.isPackaged;
++export const isDev = false;
++
++// Version of the Nix-provided PsychoPy library; "app" environments resolve to
++// it instead of to the Studio version, which can differ in the patch level.
++export const psychopyVersion = "@psychopyVersion@";
+diff -ru a/src/lib/preferences.json b/src/lib/preferences.json
+--- a/src/lib/preferences.json
++++ b/src/lib/preferences.json
+@@ -193,7 +193,7 @@
+             }
+         },
+         "environmentsFolder": {
+-            "val": null,
++            "val": "user",
+             "valType": "str",
+             "inputType": "choice",
+             "categ": "Application",
+diff -ru a/src/lib/python/functions.svelte.js b/src/lib/python/functions.svelte.js
+--- a/src/lib/python/functions.svelte.js
++++ b/src/lib/python/functions.svelte.js
+@@ -29,7 +29,8 @@
+  */
+ async function sanitizeVersion(version) {
+     if (!version || version === "app") {
+-        version = await electron.version()
++        // the Nix-provided library, not the Studio version
++        version = "@psychopyVersion@"
+     }
+ 
+     return version
+diff -ru a/src/lib/utils/code/CodeEditor.svelte b/src/lib/utils/code/CodeEditor.svelte
+--- a/src/lib/utils/code/CodeEditor.svelte
++++ b/src/lib/utils/code/CodeEditor.svelte
+@@ -98,7 +98,9 @@
+ 
+     onMount(() => {
+         (async () => {
+-            // initialise monaco loader
++            // initialise monaco loader; serve monaco from the app instead of
++            // the jsdelivr CDN so the editor works offline
++            loader.config({ paths: { vs: "/monaco-editor/min/vs" } });
+             monaco = await loader.init();
+             // figure out language from file
+             if (!language) {

@@ -1,0 +1,87 @@
+Description: Build against the system GLEW instead of the embedded copy
+ The embedded GLEW sources are deleted in postPatch. Include <GL/glew.h> and
+ link -lGLEW in Screen and moglcore, without -DGLEW_STATIC.
+Origin: Ported from Debian deb_use_system_GLEW.patch (3.0.22.3+dfsg-4).
+---
+--- a/PsychSourceGL/Source/Common/Base/PsychIncludes.h
++++ b/PsychSourceGL/Source/Common/Base/PsychIncludes.h
+@@ -60,7 +60,7 @@
+ // for all OpenGL definitions and functions, currently up to
+ // OpenGL 4.6 + latest extensions beyond that:
+ #if defined(PTBMODULE_Screen) || defined(PTBMODULE_FontInfo) || defined(PTBMODULE_PsychVulkanCore)
+-#include "../Screen/GL/glew.h"
++#include <GL/glew.h>
+ #endif
+ 
+ //platform dependent includes stage 1
+@@ -76,7 +76,7 @@
+ 
+     // This is the new glew include for GLX extension support:
+ #if defined(PTBMODULE_Screen)
+-    #include "../Screen/GL/glxew.h"
++    #include <GL/glxew.h>
+ #endif
+ 
+     #include <X11/Xlib.h>
+--- a/PsychSourceGL/Source/Common/PsychOpenXRCore/PsychOpenXRCore.c
++++ b/PsychSourceGL/Source/Common/PsychOpenXRCore/PsychOpenXRCore.c
+@@ -94,7 +94,7 @@
+ 
+ // We use OpenGL for all XR image rendering:
+ #define XR_USE_GRAPHICS_API_OPENGL
+-#include "../Screen/GL/glew.h"
++#include <GL/glew.h>
+ 
+ // On Linux we use XLib for X11/GLX interfacing to get our OpenGL rendering contexts:
+ #if PSYCH_SYSTEM == PSYCH_LINUX
+--- a/PsychSourceGL/Source/linuxmakeitoctave3.m
++++ b/PsychSourceGL/Source/linuxmakeitoctave3.m
+@@ -89,7 +89,7 @@
+ 
+     % Build against system installed GStreamer-1.8+, ideally 1.18+.
+     iflags = pkgconfig_iflags('gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-pbutils-1.0 glib-2.0 libxml-2.0');
+-    mex("-W -std=gnu99 -Wno-stringop-truncation", "--output", "../Projects/Linux/build/Screen.mex", "-Wno-date-time", "-DPTBMODULE_Screen", "-DPTB_USE_GSTREAMER", "-DPTBVIDEOCAPTURE_LIBDC", "-DPTB_USE_NVSTUSB", "-DGLEW_STATIC", "-DPTBOCTAVE3MEX", "-D_GNU_SOURCE", "-I../Cohorts/libnvstusb-code-32/include", "-ICommon/Base", "-ICommon/Screen", "-ILinux/Base", "-ILinux/Screen", iflags{:}, "Linux/Base/*.c", "Linux/Screen/*.c", "Common/Screen/*.c", "Common/Base/*.c", "Common/Screen/tinyexr.cc", "-lc", "-ldl", "-lrt", "-lGL", "-lGLU", "-lX11", "-lXext", "-lX11-xcb", "-lxcb", "-lxcb-dri3", "-lxcb-present", "-lgstreamer-1.0", "-lgstbase-1.0", "-lgstapp-1.0", "-lgstvideo-1.0", "-lgstpbutils-1.0", "-lgobject-2.0", "-lgmodule-2.0", "-lxml2", "-lgthread-2.0", "-lglib-2.0", "-lXxf86vm", "-ldc1394", "-lusb-1.0", "-lpciaccess", "-lXi", "-lXrandr", "-lXfixes", "-lXcomposite");
++    mex("-W -std=gnu99 -Wno-stringop-truncation", "--output", "../Projects/Linux/build/Screen.mex", "-Wno-date-time", "-DPTBMODULE_Screen", "-DPTB_USE_GSTREAMER", "-DPTBVIDEOCAPTURE_LIBDC", "-DPTB_USE_NVSTUSB", "-DPTBOCTAVE3MEX", "-D_GNU_SOURCE", "-I../Cohorts/libnvstusb-code-32/include", "-ICommon/Base", "-ICommon/Screen", "-ILinux/Base", "-ILinux/Screen", iflags{:}, "Linux/Base/*.c", "Linux/Screen/*.c", "Common/Screen/*.c", "Common/Base/*.c", "Common/Screen/tinyexr.cc", "-lc", "-ldl", "-lrt", "-lGL", "-lGLU", "-lGLEW", "-lX11", "-lXext", "-lX11-xcb", "-lxcb", "-lxcb-dri3", "-lxcb-present", "-lgstreamer-1.0", "-lgstbase-1.0", "-lgstapp-1.0", "-lgstvideo-1.0", "-lgstpbutils-1.0", "-lgobject-2.0", "-lgmodule-2.0", "-lxml2", "-lgthread-2.0", "-lglib-2.0", "-lXxf86vm", "-ldc1394", "-lusb-1.0", "-lpciaccess", "-lXi", "-lXrandr", "-lXfixes", "-lXcomposite");
+ 
+     unix(['cp ../Projects/Linux/build/Screen.mex ' PsychtoolboxRoot target]);
+ end
+@@ -161,7 +161,7 @@
+     curdir = pwd;
+     cd('../../Psychtoolbox/PsychOpenGL/MOGL/source/')
+     try
+-       mex --output moglcore.mex -Wno-address -Wno-incompatible-pointer-types -Wno-discarded-qualifiers -Wno-int-conversion -DPTB_USE_WAFFLE -DLINUX -DGLEW_STATIC -DPTBOCTAVE3MEX -I/usr/X11R6/include -L/usr/X11R6/lib -lc -lGL -lGLU -lglut moglcore.c gl_auto.c gl_manual.c glew.c mogl_rebinder.c ftglesGlue.c
++       mex --output moglcore.mex -Wno-address -Wno-incompatible-pointer-types -Wno-discarded-qualifiers -Wno-int-conversion -DPTB_USE_WAFFLE -DLINUX -DPTBOCTAVE3MEX -I/usr/X11R6/include -L/usr/X11R6/lib -lc -lGL -lGLU -lglut -lGLEW moglcore.c gl_auto.c gl_manual.c mogl_rebinder.c ftglesGlue.c
+     catch %#ok<*CTCH>
+     end
+     unix(['cp moglcore.mex ' PsychtoolboxRoot target]);
+--- a/Psychtoolbox/PsychOpenGL/MOGL/source/mogl_rebinder.c
++++ b/Psychtoolbox/PsychOpenGL/MOGL/source/mogl_rebinder.c
+@@ -3,7 +3,7 @@
+  *
+  */
+ 
+-#include "GL/glew.h"
++#include <GL/glew.h>
+ 
+ // Dynamic extension rebinding: This is in an extra file mogl_rebinder.c and defined
+ // with explicit C linkage. Reason: For the Octave version, we need to compile all
+--- a/Psychtoolbox/PsychOpenGL/MOGL/source/mogltypes.h
++++ b/Psychtoolbox/PsychOpenGL/MOGL/source/mogltypes.h
+@@ -47,7 +47,7 @@
+ /* glew.h is part of GLEW library for automatic detection and binding of
+    OpenGL core functionality and extensions.
+  */
+-#include "GL/glew.h"
++#include <GL/glew.h>
+ 
+ /* Includes specific to MacOS-X version of mogl: */
+ #ifdef MACOSX
+@@ -69,7 +69,7 @@
+ #include <stdlib.h>
+ #include <unistd.h>
+ #include <string.h>
+-#include "GL/glxew.h"
++#include <GL/glxew.h>
+ #include <GL/gl.h>
+ #include <GL/glu.h>
+ #include <GL/glut.h>
