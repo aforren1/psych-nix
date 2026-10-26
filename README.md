@@ -623,7 +623,7 @@ Limits of the rpath:
 - The glibc of the FHS environment that runs MATLAB must not be older than the glibc of the store libraries. With one nixpkgs for the fleet and the overlay, they are the same.
 - The rpath names exact store paths. The builder registers a GC root (`runtime`) next to the files. On machines that get a copy, the closure of `matlab-psychtoolbox` keeps the same libraries. Thus copy the files only to machines on the same flake revision.
 
-Startup: `startup.m` adds PTB to the path, removes the Octave, macOS, Windows, ARM, and Wayland folders, and puts the mex folder first. The wrapper runs it with `run()` before the command of `-r` or `-batch`. A `startup.m` on `MATLABPATH` would depend on the position of `userpath`. The package deletes the prebuilt `.class` files, but MATLAB releases before R2025a need the Java class `GetCharJava` for `GetChar` and `ListenChar`. Thus `matlab-psychtoolbox` compiles `GetCharJava.java` for Java 8 and adds it with `javaaddpath`.
+Startup: `startup.m` adds PTB to the path, removes the Octave, macOS, Windows, ARM, and Wayland folders, and puts the mex folder first. The wrapper runs it with `run()` before the command of `-r` or `-batch`. The wrapper installs it as `ptb_startup.m` in a subfolder, because `run()` calls a script by its base name, which must be a valid MATLAB identifier. A store file name such as `<hash>-startup.m` is not valid. A `startup.m` on `MATLABPATH` would depend on the position of `userpath`. The package deletes the prebuilt `.class` files, but MATLAB releases before R2025a need the Java class `GetCharJava` for `GetChar` and `ListenChar`. Thus `matlab-psychtoolbox` compiles `GetCharJava.java` for Java 8 and adds it with `javaaddpath`.
 
 ### Known limits
 

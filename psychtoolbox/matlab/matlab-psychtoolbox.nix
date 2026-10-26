@@ -9,7 +9,7 @@
   lib,
   stdenv,
   runCommand,
-  replaceVars,
+  replaceVarsWith,
   writeShellScriptBin,
   jdk_headless,
   gst_all_1,
@@ -47,10 +47,19 @@ let
           ${psychtoolbox-3}/share/psychtoolbox-3/PsychJava/GetCharJava.java
       '';
 
-  startup = replaceVars ./startup.m {
-    ptbRoot = "${psychtoolbox-3}/share/psychtoolbox-3";
-    inherit mexDir getCharJava;
+  # MATLAB's run() changes to the folder of the script and calls it by its
+  # base name, which must be a valid MATLAB identifier. A store file name
+  # such as <hash>-startup.m is not, so the script is in a subfolder.
+  startupDrv = replaceVarsWith {
+    name = "ptb_startup.m";
+    src = ./startup.m;
+    dir = "share/matlab-psychtoolbox";
+    replacements = {
+      ptbRoot = "${psychtoolbox-3}/share/psychtoolbox-3";
+      inherit mexDir getCharJava;
+    };
   };
+  startup = "${startupDrv}/share/matlab-psychtoolbox/ptb_startup.m";
 
   # Same plugin set as octave-psychtoolbox.
   gstPluginPath = lib.makeSearchPathOutput "out" "lib/gstreamer-1.0" (
