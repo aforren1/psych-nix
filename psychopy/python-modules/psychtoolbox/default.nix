@@ -26,6 +26,11 @@ buildPythonPackage rec {
     hash = "sha256-Fk1jjoLwWVwWYxDHHXKFn+RD+YjDigvIpCpcBfvw4zo=";
   };
 
+  # Worker threads (KbQueue, IOPort, PortAudio callback) printed through
+  # PySys_WriteStdout without holding the GIL and crashed Python when realtime
+  # priority was denied. Upstream bug; see the patch header.
+  patches = [ ./python-printf-worker-threads.patch ];
+
   # setup.py hardcodes the FHS include path for libusb.
   # gamemode is optional and loaded with dlopen at run time; an absolute path
   # makes it work without LD_LIBRARY_PATH.

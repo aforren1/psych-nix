@@ -21,6 +21,8 @@ The document has four parts:
 
 You need Nix with flakes enabled. Run all commands from the repository root.
 
+Two attribute names cause mistakes. `psychtoolbox-3` is only the m-file tree and the mex files; to run Psychtoolbox, install `octave-psychtoolbox` (or `octave-psychtoolbox-lab`), which contains Octave and puts Psychtoolbox on its path. On a lab machine, `programs.psychtoolbox.enable` installs that package and sets the realtime limits that Psychtoolbox and PsychoPy need for timing.
+
 1. Build the PsychoPy library environment:
 
    ```sh
@@ -549,14 +551,14 @@ The `psychopy-pytest` check (`tests/psychopy-pytest.nix`) runs the PsychoPy upst
 The check uses the marker selection of upstream CI on Ubuntu: `-m "not needs_sound and not needs_wx and not needs_qt and not needs_pygame and not emulator"`.
 It runs in the build sandbox, under Xvfb with Mesa llvmpipe. The sandbox has no network, no audio device, and no realtime priority. The suite writes into its own directory, so the check runs a writable copy of the installed tests. The test environment adds `javascripthon` (as upstream CI does), the test dependencies that the suite imports, and `pytest-timeout`. The check sets `GITHUB_WORKFLOW`, as upstream CI does. Thus the suite skips the timing, refresh rate, and gamma tests. A run takes about 6.5 minutes.
 
-Baseline (PsychoPy 2026.2.4, nixos-26.05): 812 passed, 10 expected failures, 125 skipped, 41 deselected.
+Baseline (PsychoPy 2026.2.4, nixos-26.05): 821 passed, 9 expected failures, 125 skipped, 33 deselected.
 The check fails if a test fails that is not in `expectedFailures`, or if fewer than `minPassed` tests pass. Expected failures:
 
 - One test writes into the PsychoPy install, which is read-only in the store.
-- Three tests start an experiment subprocess that creates a PsychHID keyboard. The subprocess has no realtime priority and stops with SIGSEGV. See [Known limits](#known-limits).
 - Six TextBox2 tests have small glyph raster differences from the upstream screenshots. The system FreeType is not the FreeType in the upstream `freetype-py` wheel.
+- Two tests fail because of plugin bugs that appear once plugins are activated: the MoviePy movie component of `psychopy-legacy` 1.2.1 calls `getInitVals()` without its `params` argument, and a NoiseStim hint of `psychopy-visionscience` 0.0.10 fails the capitalization check.
 
-In addition to the marker selection, the check deselects tests that need the network (psychopy.org, Google Fonts), `git` and a Git checkout, or codecov. It also deselects the `TestKeyboardComponent` class, because its PsychHID crash stops the full pytest session. It ignores `test_gui/test_DlgFromDictWx.py`, because that file imports wx.
+In addition to the marker selection, the check deselects tests that need the network (psychopy.org, Google Fonts), `git` and a Git checkout, or codecov. It ignores `test_gui/test_DlgFromDictWx.py`, because that file imports wx.
 
 PTB demo sweep: the "Psychtoolbox demo sweep" subtest of `psychtoolbox-x11` runs `tests/ptb-sweep.m` as the logged-in user, with zink on lavapipe. The sweep follows the Debian package test (`debian/rules` and `debian/run_tests`). Each entry runs in its own `octave-cli` process with a time limit, so that a demo that hangs or crashes does not stop the sweep. For demos that end only on a key press, `xdotool` sends the keys. Each entry prints one line, `SWEEP <name> ok|fail|skip <seconds>`. The subtest fails only if an entry in `expectedPass` is not `ok`. The log shows the other entries for information. The sweep takes about 3 minutes.
 
@@ -638,7 +640,7 @@ Startup: `startup.m` adds PTB to the path, removes the Octave, macOS, Windows, A
 - wxGTK on X11 exports no window icon for a single 256 px icon (GDK request size limit). The app package sets the full icon bundle instead; this is an upstream wx/GDK behavior, not a Nix one.
 - The Octave Datapixx mex file is not tested with a VPixx device. It loads only because a shim disables an Octave safety check. See [Vendor SDKs](#vendor-sdks).
 - Hydra does not build `octave-ilp64`. The first build of a `-datapixx` or `-lab` Octave package takes about 24 minutes, plus the Octave packages.
-- Upstream bug, not fixed here: the PsychHID keyboard thread in the PTB Python bindings tries to get realtime priority. If `pthread_setschedparam` fails, the thread prints a message with `PySys_WriteStdout` without the GIL, and the process stops with SIGSEGV. On lab machines, the realtime limits from the module prevent this. For a user without these limits (no `programs.psychtoolbox`), a PsychoPy `Keyboard` with the psychtoolbox backend crashes.
+- Upstream bug, patched in the PTB Python bindings (`python-printf-worker-threads.patch`): worker threads (PsychHID keyboard queue, IOPort reader, PortAudio callback) printed through `PySys_WriteStdout` without the GIL, for example when `pthread_setschedparam` failed for a user without realtime limits, and the process stopped with SIGSEGV. Every Builder experiment crashed on such a user. The patch sends prints from worker threads to the C `stderr`, as the MATLAB build of the same header does. The realtime limits from the module are still needed for timing.
 - `psychopy-glfw` 0.0.2 does not work with PsychoPy 2026: `winType='glfw'` fails. Thus the PsychoPy environments do not include it. Also, GLFW selects Wayland if `XDG_RUNTIME_DIR` contains a Wayland socket, even if `WAYLAND_DISPLAY` is not set.
 - `sr-research-pylink` is built and tested only for Python 3.12 (cp312) and, in the 2024 packages, Python 3.10 (cp310).
 - PsychoPy 2024.2.4 uses Mesa 24.2.8, which does not support RDNA4 GPUs (Radeon RX 9000). On these GPUs, the 2024 packages use software rendering. NVIDIA GLX is not affected.

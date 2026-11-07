@@ -53,11 +53,6 @@ let
   ];
 
   deselect = [
-    # The PsychHID keyboard queue thread fails to get realtime priority (no
-    # CAP_SYS_NICE or RLIMIT_RTPRIO in the sandbox; upstream CI uses setcap)
-    # and then prints without the GIL, which kills the interpreter with
-    # SIGSEGV. That ends the whole pytest session.
-    "test_experiment/test_components/test_KeyboardComponent.py::TestKeyboardComponent"
     # Posts codecov.yml to codecov.io. Needs the network and a Git checkout.
     "test_codecov.py::test_valid_yaml"
     # Need the git binary, a Git checkout of PsychoPy and the network.
@@ -74,15 +69,15 @@ let
 
   # JUnit IDs (classname::name) that fail in this environment.
   expectedFailures = [
+    # Plugin bugs that show once plugins are activated (the keyboard component
+    # tests activate them): psychopy-legacy 1.2.1 calls getInitVals() without
+    # its params argument in the MoviePy movie component, and the NoiseStim
+    # hint of psychopy-visionscience 0.0.10 fails the capitalization check.
+    "psychopy.tests.test_experiment.test_components.test_all_components::test_all_have_depth"
+    "psychopy.tests.test_experiment.test_params.TestStyle::test_case"
     # Writes Darwin.spec into psychopy/preferences, which is read-only in the
     # store.
     "psychopy.tests.test_preferences.test_prefs::testGenerateSpec"
-
-    # The experiment subprocess creates a PsychHID keyboard and dies with
-    # SIGSEGV, for the same reason as the deselected keyboard tests.
-    "psychopy.tests.test_experiment.test_components.test_ButtonBoxComponent.TestButtonBoxComponent::test_values"
-    "psychopy.tests.test_experiment.test_loops.TestLoops::test_output_length"
-    "psychopy.tests.test_experiment.test_loops.TestLoops::test_current_loop_attr"
 
     # Small glyph raster differences against upstream's screenshots (RMS
     # just over the threshold): system FreeType versus the one in upstream's
@@ -97,7 +92,7 @@ let
 
   # Passed tests in the last recorded sandbox run (PsychoPy 2026.2.4,
   # nixos-26.05).
-  minPassed = 812;
+  minPassed = 821;
 
   expectedFailuresFile = writeText "psychopy-expected-failures" (lib.concatLines expectedFailures);
 

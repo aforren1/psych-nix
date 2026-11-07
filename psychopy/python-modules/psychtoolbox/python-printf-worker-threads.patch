@@ -1,0 +1,40 @@
+Python bindings: do not call PySys_Write* from worker threads
+
+Upstream bug (Psychtoolbox-3 3.0.22.2, Python bindings only).
+PsychConstants.h maps printf to PySys_WriteStdout and fprintf to
+PySys_WriteStderr for PSYCH_LANGUAGE == PSYCH_PYTHON. Both require the
+calling thread to hold the GIL. Worker threads created with
+PsychCreateThread() do not hold it, but they print: for example
+KbQueueWorkerThreadMain() (Linux PsychHID) calls PsychSetThreadPriority(),
+whose failure message (Linux/Base/PsychTimeGlue.c) is a printf. On a
+system without an RLIMIT_RTPRIO grant, pthread_setschedparam() fails, the
+thread calls PySys_WriteStdout() without the GIL, and Python crashes with
+SIGSEGV in sys_write(). PsychoPy's default keyboard backend
+(psychopy.hardware.keyboard.Keyboard -> PsychHID KbQueue) triggers this,
+so Builder experiments crash on start.
+
+Fix: on non-master threads, print to the C stderr stream, like the Matlab
+branch of the same header already gates mexPrintf on PsychIsMasterThread().
+
+--- a/PsychSourceGL/Source/Common/Base/PsychConstants.h
++++ b/PsychSourceGL/Source/Common/Base/PsychConstants.h
+@@ -69,10 +69,17 @@
+ #endif
+ 
+ #if PSYCH_LANGUAGE == PSYCH_PYTHON
++    // PySys_WriteStdout() and PySys_WriteStderr() require the calling thread
++    // to hold the GIL. Only the interpreter thread that runs a module function
++    // holds it. Worker threads (PsychHID KbQueue, IOPort reader, PortAudio
++    // callback) print too, for example when PsychSetThreadPriority() fails
++    // without realtime permissions, and calling into Python from there crashes
++    // the interpreter. Send their output to the C stderr stream instead.
++    // The parentheses in (fprintf) suppress expansion of the fprintf macro.
+     #undef printf
+-    #define printf PySys_WriteStdout
++    #define printf(...) (PsychIsMasterThread() ? PySys_WriteStdout(__VA_ARGS__) : (void) (fprintf)(stderr, __VA_ARGS__))
+     #undef fprintf
+-    #define fprintf(fdignore, ...) PySys_WriteStderr(__VA_ARGS__)
++    #define fprintf(fdignore, ...) (PsychIsMasterThread() ? PySys_WriteStderr(__VA_ARGS__) : (void) (fprintf)(stderr, __VA_ARGS__))
+ #endif
+ 
+ //platform dependent macro defines

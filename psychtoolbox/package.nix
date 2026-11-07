@@ -303,7 +303,7 @@ stdenv.mkDerivation (finalAttrs: {
   };
 
   meta = {
-    description = "Toolbox for vision and neuroscience experiments in GNU Octave";
+    description = "Psychtoolbox-3 m-files and Octave mex files; install octave-psychtoolbox to run it";
     homepage = "https://psychtoolbox.org";
     changelog = "https://github.com/Psychtoolbox-3/Psychtoolbox-3/releases/tag/${finalAttrs.version}";
     # Mostly MIT, with GPL/LGPL parts and some non-commercial material in
