@@ -578,7 +578,7 @@ The vendor packages must not go into the cache. The cache is not public, but pul
 
 `matlab-mex.yml` builds `ptb-matlab-mex-builder` and runs `--check-env` before the MATLAB download. Then `matlab-actions/setup-matlab@v3` installs MATLAB (product `MATLAB`, with `cache`). A "Diagnose mex compiler detection" step then runs `--mex-setup` and continues on error, so the log shows the detection even when the build fails. In public repositories, `setup-matlab` gives a license only through the `run-*` actions and their `run-matlab-command` helper. The builder calls `matlab -batch`, so the workflow installs a shim at `/opt/matlab/<release>/bin/matlab` that sends the command to `run-matlab-command`. The helper is not documented and can change. The workflow builds the mex files into `$RUNNER_TEMP`, and makes sure that `ldd` finds all libraries except `libmx`, `libmex`, and `libmat`. Then it loads `Screen`, `GetSecs`, `WaitSecs`, and `PsychPortAudio` through `matlab-psychtoolbox` in an FHS environment, because the runner's glibc 2.39 is older than the glibc of the store. It uploads the mex files as an artifact.
 
-Neither workflow has run yet, because the repository is not on GitHub. Open questions: if the public-repository license lets `mex` run, if MATLAB's compiler check accepts GCC 15, and if `run-matlab-command` works inside bubblewrap.
+Both workflows run on `aforren1/psych-nix`. The MATLAB workflow has passed with R2024b: the public-repository license lets `mex` run, MATLAB accepts the store GCC with a version warning, and `run-matlab-command` works inside bubblewrap. A cold `checks.yml` run takes about 2 hours; a warm run builds only the changed derivations.
 
 ### Vendor SDKs
 
@@ -646,7 +646,6 @@ Startup: `startup.m` adds PTB to the path, removes the Octave, macOS, Windows, A
 - PsychoPy 2024.2.4 uses Mesa 24.2.8, which does not support RDNA4 GPUs (Radeon RX 9000). On these GPUs, the 2024 packages use software rendering. NVIDIA GLX is not affected.
 - The 2024 packages come from nixos-24.11, which is end of life and gets no security fixes, for example for the WebKitGTK of the Pavlovia login. The Pavlovia login in 2024 is not tested.
 - PsychoPy 2024 and 2026 share the preference folder `~/.psychopy3`.
-- The GitHub Actions workflows have not run. See [Continuous integration](#continuous-integration).
 - PTB tests that write into `PsychtoolboxRoot`, for example `UnitTestRunAll` and `Files_Test_FileFromFolder`, cannot run, because the store is read-only.
 - Upstream bug, not fixed here: `PhotopigmentNomogramDemo` calls `sgtitle`, which Octave does not have.
-- The MATLAB packages are not tested with a real MATLAB. Tested: the build of both builders and both wrappers, `--check-env`, `--dry-run`, Octave parses the patched `linuxmakeit64.m`, and the search order of `DT_RPATH`. Not tested: MATLAB's `mex` with these flags and its compiler check (MATLAB can warn that GCC 15 is not supported), conflicts between MATLAB's own libraries and the store libraries, loading the mex files, the libstdc++ preload, the GC root, the copy to other machines, and hardware (Eyelink, Datapixx).
+- The MATLAB packages are tested only on GitHub Actions with R2024b, in a non-interactive session under Xvfb: the mex build, `DT_RPATH`, and loading `Screen`, `GetSecs`, `WaitSecs`, and `PsychPortAudio`. Not tested: an interactive MATLAB session, the libstdc++ preload on the fleet, the GC root, the copy to other machines, `Screen('OpenWindow')` on a real GPU, and hardware (Eyelink, Datapixx).
