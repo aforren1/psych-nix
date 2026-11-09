@@ -23,6 +23,8 @@ You need Nix with flakes enabled. Run all commands from the repository root.
 
 Two attribute names cause mistakes. `psychtoolbox-3` is only the m-file tree and the mex files; to run Psychtoolbox, install `octave-psychtoolbox` (or `octave-psychtoolbox-lab`), which contains Octave and puts Psychtoolbox on its path. On a lab machine, `programs.psychtoolbox.enable` installs that package and sets the realtime limits that Psychtoolbox and PsychoPy need for timing.
 
+Psychtoolbox opens windows only in an X11 session. In a Wayland session, `Screen('OpenWindow')` stops with a `PTB-ERROR` about XWayland. GNOME 50 in nixos-26.05 has no X11 session. Thus use XFCE (`services.xserver.desktopManager.xfce`), as the lab fleet does, or the Plasma X11 session. PsychoPy starts in a Wayland session through XWayland, but its frame timing is not reliable there.
+
 1. Build the PsychoPy library environment:
 
    ```sh
@@ -386,7 +388,7 @@ Packages added to `psychopyPackages`:
 PTB mex files in `psychtoolbox-3`: `Screen`, `GetSecs`, `WaitSecs`, `PsychPortAudio`, `IOPort`, `PsychHID`, `moglcore`, `moalcore`, `pnet`, `PsychCV`, `PsychVulkanCore`, `PsychOpenXRCore`.
 Built only in the `-eyelink` and `-lab` variants: `Eyelink`.
 Added only in the `-datapixx` and `-lab` variants: `Datapixx.mexa64` for MATLAB and `Datapixx.mex` for Octave, prebuilt by VPixx. The Octave file works only on `octave-ilp64` (see [Vendor SDKs](#vendor-sdks)).
-Not built: PsychKinectCore, PsychOpenHMDVRCore, PsychOculusVRCore, RPiGPIOMex, and the Wayland variants.
+Not built: PsychKinectCore, PsychOpenHMDVRCore, PsychOculusVRCore, RPiGPIOMex, and the Wayland variants. See [Known limits](#known-limits) for Wayland.
 
 ### Options of `ptb-matlab-mex-builder`
 
@@ -636,6 +638,8 @@ Startup: `startup.m` adds PTB to the path, removes the Octave, macOS, Windows, A
 
 - `Screen('OpenWindow')` causes a segmentation fault on Mesa llvmpipe. This is a Mesa bug: the drisw GLX screen leaves `getSwapInterval` as NULL, and `glXQueryDrawable(GLX_SWAP_INTERVAL_EXT)` calls it. Real GPUs are not affected. The `psychtoolbox-x11` test uses zink on lavapipe (`MESA_LOADER_DRIVER_OVERRIDE=zink`).
 - Xvfb cannot run PTB windows.
+- PTB does not run in a Wayland session. The X11 `Screen` refuses to open a window under XWayland when `WAYLAND_DISPLAY` is set, because upstream found that XWayland's OpenML support hangs the startup tests. GNOME 50 removed its X11 session, so nixos-26.05 GNOME cannot run PTB. Use XFCE, or the Plasma 6 X11 session (`kwin-x11`), which KDE plans to remove. To run a demo on Wayland without valid timing, use upstream's override, which can still hang: `clear all; setenv('WAYLAND_DISPLAY'); Screen('Preference','ConserveVRAM', 2^19);`.
+- The packages do not include the upstream Wayland `Screen` (build mode 100, enabled by `PSYCH_ALLOW_WAYLAND`). The upstream binary links `libLexActivator` and a patched waffle 0.5.90 that upstream ships only as a binary, and the package deletes all prebuilt binaries. A build from source against nixpkgs waffle 1.8.1 is not tried. The backend dates from 2015, upstream does not document it, and its timing on GNOME (mutter) is not known.
 - On the first Studio launch into an empty home directory, upstream starts the liaison bridge twice while it creates the venv. The second start fails with "Address already in use" and Studio shows "Python error" toasts. The first bridge stays connected. Later launches do not show this.
 - wxGTK on X11 exports no window icon for a single 256 px icon (GDK request size limit). The app package sets the full icon bundle instead; this is an upstream wx/GDK behavior, not a Nix one.
 - The Octave Datapixx mex file is not tested with a VPixx device. It loads only because a shim disables an Octave safety check. See [Vendor SDKs](#vendor-sdks).
