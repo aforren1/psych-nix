@@ -16,6 +16,7 @@
 buildFHSEnv {
   name = "matlab-install";
   targetPkgs = matlabFhsLibs;
+  profile = import ./fhs-profile.nix;
 
   runScript = writeShellScript "matlab-install" ''
     cat <<'EOF'

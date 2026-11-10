@@ -19,6 +19,7 @@ in
 buildFHSEnv {
   name = "matlab";
   targetPkgs = matlabFhsLibs;
+  profile = import ./fhs-profile.nix;
 
   runScript = writeShellScript "matlab-run" ''
     if [ -x ${lib.escapeShellArg root}/bin/matlab ]; then

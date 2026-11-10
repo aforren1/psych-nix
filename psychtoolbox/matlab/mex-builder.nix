@@ -187,7 +187,8 @@ buildFHSEnv {
   # .pc files in share/pkgconfig.
   profile = ''
     export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:/usr/share/pkgconfig"
-  '';
+  ''
+  + import ./fhs-profile.nix;
 
   runScript = script;
 
