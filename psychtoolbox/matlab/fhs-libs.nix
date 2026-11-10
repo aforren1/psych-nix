@@ -1,0 +1,57 @@
+# Libraries that MATLAB needs to start, from doronbehar/nix-matlab. One list
+# for matlab-fhs, matlab-install-fhs and ptb-matlab-mex-builder, so the
+# builder starts MATLAB with the same libraries as the fleet's `matlab`.
+p: with p; [
+  cacert
+  alsa-lib
+  atk
+  glib
+  glibc
+  cairo
+  cups
+  dbus
+  fontconfig
+  gdk-pixbuf
+  gtk3
+  at-spi2-atk
+  at-spi2-core
+  nspr
+  nss
+  pam
+  pango
+  python3
+  libselinux
+  libsndfile
+  glibcLocales
+  procps
+  unzip
+  zlib
+  libdrm
+  mesa
+  gcc
+  gfortran
+  udev
+  ncurses
+  libxkbcommon
+  xkeyboard_config
+  libglvnd
+  libGL
+  libuuid
+  libsm
+  libx11
+  libxcb
+  libxcomposite
+  libxcursor
+  libxdamage
+  libxext
+  libxfixes
+  libxft
+  libxi
+  libxinerama
+  libxrandr
+  libxrender
+  libxt
+  libxtst
+  libxxf86vm
+  libice
+]

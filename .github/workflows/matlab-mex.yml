@@ -88,8 +88,8 @@ jobs:
       - name: Build the mex files
         run: builder/bin/ptb-matlab-mex-builder --release "$MATLAB_RELEASE" --out "$MEX_OUT"
       # The fleet runs MATLAB in an FHS environment, and the store libraries
-      # need its glibc (2.42), not Ubuntu's (2.39). This `matlab` has the same
-      # libraries as the builder and starts the shim.
+      # need its glibc (2.42), not Ubuntu's (2.39). matlab-fhs is the fleet's
+      # `matlab`, without the PTB libraries of the builder; it starts the shim.
       - name: Build matlab-psychtoolbox for these mex files
         run: |
           # Exported here as well: $GITHUB_ENV only reaches later steps, and
@@ -97,7 +97,6 @@ jobs:
           MEX_DIR=$MEX_OUT/$(nix eval --raw .#ptb-matlab-mex-builder.psychtoolbox.version)/$MATLAB_RELEASE/PsychBasic
           export MEX_DIR
           echo "MEX_DIR=$MEX_DIR" >>"$GITHUB_ENV"
-          # shellcheck disable=SC2016 # ${release} is Nix, not shell.
           nix build -L --impure -o wrapper --expr '
             let
               flake = builtins.getFlake (toString ./.);
@@ -107,11 +106,7 @@ jobs:
                 config.allowUnfree = true;
               };
               release = builtins.getEnv "MATLAB_RELEASE";
-              matlab = pkgs.buildFHSEnv {
-                name = "matlab";
-                inherit (pkgs.ptb-matlab-mex-builder.args) targetPkgs extraOutputsToInstall;
-                runScript = "/opt/matlab/${release}/bin/matlab";
-              };
+              matlab = pkgs.matlab-fhs.override { inherit release; };
             in
             pkgs.matlab-psychtoolbox.override { inherit matlab release; mexDir = builtins.getEnv "MEX_DIR"; }'
       # The nixpkgs ldd uses no host library cache, so a library that the

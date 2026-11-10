@@ -18,7 +18,8 @@
   release ? "R2024b",
   # PsychBasic folder that ptb-matlab-mex-builder --release <release> made.
   mexDir ? "${ptb-matlab-mex-builder.defaultOut}/${psychtoolbox-3.version}/${release}/PsychBasic",
-  # The fleet's `matlab` FHS environment. null: `matlab` from PATH.
+  # The `matlab` FHS environment, usually matlab-fhs for the same release.
+  # null: `matlab` from PATH.
   matlab ? null,
   # MATLAB loads its own libstdc++ before any mex file, and a loaded soname
   # wins over the rpath. Store libraries can need a newer one (openal-soft
@@ -30,6 +31,12 @@
 
 assert lib.assertMsg (psychtoolbox-3.version == ptb-matlab-mex-builder.psychtoolbox.version)
   "matlab-psychtoolbox: psychtoolbox-3 ${psychtoolbox-3.version} and the mex builder (${ptb-matlab-mex-builder.psychtoolbox.version}) differ";
+
+# The mex folder name has the release. A different MATLAB would start
+# without the mex files that were built for it.
+assert lib.assertMsg (
+  matlab == null || !(matlab ? release) || matlab.release == release
+) "matlab-psychtoolbox: release ${release} and the matlab environment (${matlab.release}) differ";
 
 let
   matlabExe = if matlab == null then "matlab" else lib.getExe' matlab "matlab";

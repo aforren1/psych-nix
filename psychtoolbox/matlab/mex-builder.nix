@@ -2,8 +2,8 @@
 # MATLAB installed outside the store. Run `ptb-matlab-mex-builder --help`.
 #
 # MATLAB is not in the store, so a derivation cannot run `mex`. This
-# environment has what MATLAB needs to start (the fleet's FHS libraries) plus
-# the PTB headers and libraries. The mex files are built without license
+# environment has what MATLAB needs to start (fhs-libs.nix, the same list as
+# matlab-fhs) plus the PTB headers and libraries. The mex files are built without license
 # management (PSYCH_NOLM) and get a DT_RPATH to the store libraries below, so
 # they load in any MATLAB that runs on the same glibc.
 {
@@ -26,63 +26,12 @@
   # Copies VPixx's prebuilt Datapixx.mexa64 (unfree) into the output.
   withDatapixx ? false,
   vpixx-software-tools ? null,
-  # Libraries that MATLAB itself needs. Keep in sync with `fhsLibs` in the
-  # fleet's modules/nixos/baseline/matlab.nix, or pass that list here.
-  matlabFhsLibs ?
-    p: with p; [
-      cacert
-      alsa-lib
-      atk
-      glib
-      glibc
-      cairo
-      cups
-      dbus
-      fontconfig
-      gdk-pixbuf
-      gtk3
-      at-spi2-atk
-      at-spi2-core
-      nspr
-      nss
-      pam
-      pango
-      python3
-      libselinux
-      libsndfile
-      glibcLocales
-      procps
-      unzip
-      zlib
-      libdrm
-      mesa
-      gcc
-      gfortran
-      udev
-      ncurses
-      libxkbcommon
-      xkeyboard_config
-      libglvnd
-      libGL
-      libuuid
-      libsm
-      libx11
-      libxcb
-      libxcomposite
-      libxcursor
-      libxdamage
-      libxext
-      libxfixes
-      libxft
-      libxi
-      libxinerama
-      libxrandr
-      libxrender
-      libxt
-      libxtst
-      libxxf86vm
-      libice
-    ],
+  # Default of --release. null: a build needs --release.
+  release ? null,
+  # Libraries that MATLAB itself needs (fhs-libs.nix, from the overlay).
+  # matlab-fhs uses the same list, so mex runs with the libraries that
+  # MATLAB has on the fleet.
+  matlabFhsLibs,
 }:
 
 assert withEyelink -> eyelink-core != null;
@@ -199,6 +148,7 @@ let
         runtime
         octave
         ;
+      defaultRelease = if release == null then "" else release;
       modes = toString modes;
       pkgConfigModules = toString pkgConfigModules;
       datapixxMex = lib.optionalString withDatapixx vpixx-software-tools.datapixxMex.matlab;
@@ -223,7 +173,7 @@ buildFHSEnv {
       p.xorgproto
       # MATLAB's compiler configurations (bin/glnxa64/mexopts/gcc_glnxa64.xml
       # and g++_glnxa64.xml) find the compiler with `which gcc` and
-      # `which g++`. buildFHSEnv and the fleet's fhsLibs have no `which`, so
+      # `which g++`. buildFHSEnv and fhs-libs.nix have no `which`, so
       # mex reports "Supported compiler not detected" (MATLAB:mex:NoCompilerFound).
       p.which
       pkg-config
@@ -248,6 +198,8 @@ buildFHSEnv {
       rpath
       runtime
       defaultOut
+      matlabRoot
+      release
       ;
     psychtoolbox = psychtoolbox-3;
   };

@@ -47,6 +47,7 @@
             psychopy-studio
             psychtoolbox-3
             octave-psychtoolbox
+            octave-liblsl
             eyelink-core
             eyelink-edfapi
             psychtoolbox-3-eyelink
@@ -55,6 +56,8 @@
             octave-ilp64
             psychtoolbox-3-datapixx
             octave-psychtoolbox-datapixx
+            matlab-fhs
+            matlab-install-fhs
             ptb-matlab-mex-builder
             ptb-matlab-mex-builder-lab
             matlab-psychtoolbox
@@ -99,6 +102,7 @@
           );
           psychtoolbox-x11 = pkgs.testers.runNixOSTest (import ./tests/psychtoolbox-x11.nix);
           psychopy-pytest = pkgs.callPackage ./tests/psychopy-pytest.nix { };
+          lsl = pkgs.callPackage ./tests/lsl.nix { };
         }
       );
 

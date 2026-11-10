@@ -133,6 +133,19 @@ in
         double buffering for Vulkan stimulus presentation.
       '';
     };
+
+    ignoreMilliKeyJoystick = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Make the X server ignore the joystick endpoint of the LabHackers
+        MilliKey response box (USB ID 16c0:048a). Otherwise PsychHID can
+        select that endpoint instead of the keyboard endpoint that reports
+        the button presses. The rule matches only a joystick device with
+        this USB ID and "MilliKey" in its name, so it has no effect on other
+        devices.
+      '';
+    };
   };
 
   config = lib.mkMerge [
@@ -197,6 +210,23 @@ in
       # reads /etc/drirc.
       environment.etc.drirc = lib.mkIf cfg.enableDeepColor {
         source = "${ptb}/PsychHardware/90-psychtoolbox-deepcolor.conf";
+      };
+
+      # From the lab's Debian configuration; Psychtoolbox has no MilliKey
+      # file. A file in xorg.conf.d, not services.xserver.inputClassSections:
+      # the X server reads this directory in addition to its -config file,
+      # so the rule also applies when a host replaces services.xserver.config
+      # with a complete xorg.conf (for example a dual-screen layout).
+      environment.etc."X11/xorg.conf.d/52-millikey.conf" = lib.mkIf cfg.ignoreMilliKeyJoystick {
+        text = ''
+          Section "InputClass"
+              Identifier "MilliKey joystick endpoint"
+              MatchIsJoystick "on"
+              MatchProduct "MilliKey"
+              MatchUSBID "16c0:048a"
+              Option "Ignore" "on"
+          EndSection
+        '';
       };
 
       # The Monado module also installs the xr-hardware udev rules and its

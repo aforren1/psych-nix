@@ -8,6 +8,7 @@ ptbVersion='@ptbVersion@'
 source='@source@'
 matlabRoot='@matlabRoot@'
 out='@defaultOut@'
+defaultRelease='@defaultRelease@'
 read -r -a modes <<<'@modes@'
 read -r -a pkgConfigModules <<<'@pkgConfigModules@'
 rpath='@rpath@'
@@ -37,6 +38,7 @@ $matlabRoot/RELEASE/bin/matlab and installs them into
 DIR/$ptbVersion/RELEASE/PsychBasic. The default DIR is $out.
 
   --release RELEASE  MATLAB release folder under $matlabRoot, for example R2024b.
+                     Default: ${defaultRelease:-none, a build needs it}.
   --out DIR          Root of the installed mex files. Default: $out.
   --modes "LIST"     linuxmakeit64 modes. Default: ${modes[*]}.
   --keep             Keep the temporary build folder.
@@ -57,7 +59,7 @@ die() {
   exit 1
 }
 
-release=""
+release=$defaultRelease
 action=build
 keep=0
 while [ $# -gt 0 ]; do

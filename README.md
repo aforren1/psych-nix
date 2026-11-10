@@ -5,7 +5,7 @@ It supplies an overlay, a NixOS module, and NixOS VM tests.
 It also packages the SR Research (EyeLink) and VPixx vendor software. These packages are unfree.
 For MATLAB, it supplies a builder for the PTB mex files and a MATLAB wrapper. MATLAB itself is not in the store.
 
-- nixpkgs: `nixos-26.05`. This is the same pin as the fleet flake (`~/claude-nix-mgmt`).
+- nixpkgs: `nixos-26.05`. This is the same pin as the fleet flake, [psych-clan](https://github.com/aforren1/psych-clan).
 - Second nixpkgs: `nixos-24.11`, only for PsychoPy 2024.2.4. See [PsychoPy 2024.2.4](#psychopy-202424).
 - System: `x86_64-linux` only.
 - Python: 3.12 (3.10 for PsychoPy 2024.2.4). Octave: 11.1.
@@ -90,10 +90,18 @@ To update the baseline after a PsychoPy or nixpkgs update, follow the steps in t
 
 ### Use the packages in the fleet flake
 
-1. Add this flake as an input. Make it follow the fleet's nixpkgs, because the pins are the same:
+The fleet flake is [psych-clan](https://github.com/aforren1/psych-clan). It uses this flake as the input `psych-nix`:
+
+- `modules/nixos/baseline/experiment-software.nix` adds the overlay, the module, and the PsychoPy packages to each lab machine.
+- `modules/nixos/profiles/vendor-devices.nix` selects the `-lab` Psychtoolbox for rigs with an EyeLink or VPixx device.
+- The `experiment` dev shell (`modules/flake/devshell.nix`) gets its build inputs from `psychtoolbox-3`, `psychopy`, and `psychopy-app`.
+
+Use these steps to add this flake to a different NixOS flake, or to examine the fleet setup.
+
+1. Add this flake as an input. Make it follow the nixpkgs of your flake, because the pins are the same:
 
    ```nix
-   inputs.lab-pkgs = {
+   inputs.psych-nix = {
      url = "github:aforren1/psych-nix";
      inputs.nixpkgs.follows = "nixpkgs";
    };
@@ -106,46 +114,61 @@ To update the baseline after a PsychoPy or nixpkgs update, follow the steps in t
    ```nix
    { inputs, pkgs, ... }:
    {
-     nixpkgs.overlays = [ inputs.lab-pkgs.overlays.default ];
-     imports = [ inputs.lab-pkgs.nixosModules.psychtoolbox ];
+     nixpkgs.overlays = [ inputs.psych-nix.overlays.default ];
+     imports = [ inputs.psych-nix.nixosModules.psychtoolbox ];
 
      programs.psychtoolbox = {
        enable = true;
        users = [ "bw" ];
      };
 
-     environment.systemPackages = [ pkgs.psychopy-app ];
+     environment.systemPackages = [ pkgs.psychopy-app-lab ];
    }
    ```
 
-   `psychopy-app` shows the upstream first-run dialogs. On machines that erase the home directory at each boot, use `psychopy-app-lab` (step 3). It has the kiosk defaults. See [Patches](#patches).
+   `psychopy-app-lab` has the kiosk defaults. It shows no first-run dialogs on a home directory that is erased at each boot. On machines that keep the home directory, you can use `psychopy-app`, which has the upstream behavior. See [Patches](#patches).
 
-3. On machines with an EyeLink or VPixx device, use the `-lab` variants and the VPixx tools. Replace the settings from step 2 with:
+3. On machines with an EyeLink or VPixx device, add the `-lab` Psychtoolbox and the VPixx tools:
 
    ```nix
    programs.psychtoolbox = {
-     enable = true;
-     users = [ "bw" ];
      package = pkgs.psychtoolbox-3-lab;
      octavePackage = pkgs.octave-psychtoolbox-lab;
      vpixx.enable = true;
    };
-
-   environment.systemPackages = [ pkgs.psychopy-app-lab ];
    ```
 
    `octave-psychtoolbox-lab` uses `octave-ilp64`, an Octave with 64-bit indexes. The Octave Datapixx mex file needs it.
-   Hydra does not build `octave-ilp64`. The first local build takes about 24 minutes. See [Vendor SDKs](#vendor-sdks).
+   Hydra does not build `octave-ilp64`. The first local build takes about 24 minutes. Let a build host build it one time. See [Vendor SDKs](#vendor-sdks).
 
 4. Allow unfree licenses, for example with `nixpkgs.config.allowUnfree = true;`.
    PsychoPy depends on `meshpy` (the Triangle library), which is unfree.
    All vendor packages and `-lab` variants are unfree. Do not push them to a public binary cache.
-5. Remove the fleet modules that this flake replaces:
-   - `ptb-realtime.nix`: the module sets the same group and PAM limits. It also installs the udev rules that `ptb-realtime.nix` has as a TODO. Keep the `threadirqs` kernel parameter if you need it. The module does not set it.
-   - `experiment-software.nix`: the FHS environment that installs PsychoPy with pip at first run. `psychopy-app` and `psychopy-env` replace it.
-6. Resolve the GameMode settings. The fleet's `gamemode.nix` sets `renice = 10` and `softrealtime = "auto"`. The module sets `renice = 20` and `softrealtime = "off"`, from PTB's `gamemode.ini`. Different values at the same priority cause an evaluation error. Remove the fleet settings, or set `programs.psychtoolbox.enableGamemode = false;`.
+
+5. Do not set different values for the GameMode settings that the module sets, for example `renice` and `softrealtime`. The module sets them from PTB's `gamemode.ini`. A different value at the same priority causes an evaluation error. To use your own GameMode settings, set `programs.psychtoolbox.enableGamemode = false;`.
+
+6. Add the `threadirqs` kernel parameter if you need it. The module does not set it. The fleet sets it in `experiment-software.nix`.
 
 Use the same module on machines that run only PsychoPy. The Python `PsychHID` and `PsychPortAudio` modules need the same device access and realtime limits.
+
+To send a change in this flake to the fleet:
+
+1. Make the change in this repository and run the checks. See [Run the VM tests](#run-the-vm-tests).
+2. In the psych-clan repository, test the change before you push it. `--override-input` replaces the locked input for one command only. It does not change `flake.lock`.
+
+   ```sh
+   nix flake check --no-build --override-input psych-nix path:/path/to/psych-nix
+   nix run .#vm-test --override-input psych-nix path:/path/to/psych-nix
+   ```
+
+3. Push this repository.
+4. In the psych-clan repository, update the lock file:
+
+   ```sh
+   nix flake update psych-nix
+   ```
+
+5. Commit `flake.lock` and deploy the machines. See the psych-clan README.
 
 ### Run PsychoPy 2024.2.4 next to 2026
 
@@ -156,19 +179,71 @@ Use PsychoPy 2024.2.4 only for experiments that do not run on 2026.2.4. Its pack
 3. Start PsychoPy 2024 with `psychopy-2024`, or from the desktop menu entry "PsychoPy 2024.2.4". Its interpreter is `python3.10`. The commands `psychopy`, `python`, and `python3` stay with 2026. For `.psyexp` files, the file manager shows 2024 under "Open with". 2026 stays the default application.
 4. Do not add `psychopy-2024-env` to `environment.systemPackages`. It has `bin/python` and `bin/psychopy`, the same file names as the 2026 package. NixOS ignores the collision, so one package hides the file of the other. Use `psychopy-2024-env` only with its full path, for example from `nix build .#psychopy-2024-env`.
 
+### Send Lab Streaming Layer markers
+
+All PsychoPy environments (2026 and 2024, base and `-lab`) and all `octave-psychtoolbox` variants contain Lab Streaming Layer (LSL). You do not install anything. For the reasons, see [Lab hardware](#lab-hardware).
+
+- PsychoPy: in a Code component or a script, use `pylsl`. For example, in "Begin Experiment":
+
+  ```python
+  from pylsl import StreamInfo, StreamOutlet
+  outlet = StreamOutlet(StreamInfo("Markers", "Markers", 1, 0, "string", "my-experiment"))
+  ```
+
+  Then call `outlet.push_sample(["stimulus_on"])` where the event occurs. PsychoPy has Builder demos in `psychopy/demos/builder/Hardware/lab_streaming_layer`.
+- Octave: the liblsl-Matlab functions are on the path. For example:
+
+  ```matlab
+  lib = lsl_loadlib();
+  outlet = lsl_outlet(lsl_streaminfo(lib, 'Markers', 'Markers', 1, 0, 'cf_string', 'my-experiment'));
+  outlet.push_sample({'stimulus_on'});
+  ```
+
+- MATLAB: not supported. See [Known limits](#known-limits).
+
+To check LSL in each environment, run `nix build .#checks.x86_64-linux.lsl`.
+
+### Use a MilliKey response box
+
+`programs.psychtoolbox.enable` makes the X server ignore the joystick endpoint of the LabHackers MilliKey. You do not set an option. To make sure that the rule applies:
+
+1. Connect the MilliKey and log in to the X session.
+2. Run `grep MilliKey /var/log/X.0.log`. The log must show `Ignoring device from InputClass "MilliKey joystick endpoint"`.
+3. In Octave, run `[idx, names] = GetKeyboardIndices` and find the MilliKey in `names`.
+
+To turn off the rule, set `programs.psychtoolbox.ignoreMilliKeyJoystick = false`.
+
 ### Build the Psychtoolbox mex files for MATLAB
 
 MATLAB is not in the store, so Nix cannot build the PTB mex files for MATLAB. Build them one time on a reference machine that has MATLAB, then copy them to the other machines. For the design, see [MATLAB](#matlab).
 
-1. In the fleet flake, add `pkgs.matlab-psychtoolbox-lab` to `environment.systemPackages` of each machine that has MATLAB at `/opt/matlab/<release>` (fleet module `lab.matlab`). Add `pkgs.ptb-matlab-mex-builder-lab` only on the reference machine, because its closure is about 3.7 GiB. Use one flake revision on all machines, because the mex files refer to exact store paths.
-   Without EyeLink or VPixx devices, you can use `matlab-psychtoolbox` and `ptb-matlab-mex-builder`. Both pairs write to the same folder, so use one pair on all machines. If your release is not `R2024b`, use `pkgs.matlab-psychtoolbox-lab.override { release = "<release>"; }`.
+1. Install the packages on each machine that has MATLAB at `/opt/matlab/<release>`. The fleet module `lab.matlab` does this step: it installs `matlab`, `matlab-install`, and `matlab-psychtoolbox` on all machines, and `ptb-matlab-mex-builder` when `lab.matlab.mexBuilder.enable = true`. All of them use `lab.matlab.release`. Without the fleet module, use the same release in each override:
+
+   ```nix
+   { pkgs, ... }:
+   let
+     release = "R2024b";
+     matlab = pkgs.matlab-fhs.override { inherit release; };
+   in
+   {
+     environment.systemPackages = [
+       matlab
+       (pkgs.matlab-install-fhs.override { inherit release; })
+       (pkgs.matlab-psychtoolbox-lab.override { inherit matlab release; })
+       # Only on the reference machine. Its closure is about 3.7 GiB.
+       (pkgs.ptb-matlab-mex-builder-lab.override { inherit release; })
+     ];
+   }
+   ```
+
+   Use one flake revision on all machines, because the mex files refer to exact store paths. Without EyeLink or VPixx devices, you can use `matlab-psychtoolbox` and `ptb-matlab-mex-builder`. Both pairs write to the same folder, so use one pair on all machines.
 2. On the reference machine, check the build environment. This step does not start MATLAB. The last line must be `check-env: all checks passed`.
 
    ```sh
    ptb-matlab-mex-builder --check-env
    ```
 
-3. Make the output folder, then build and install the mex files. Replace `R2024b` with your release. To show the commands without a build, add `--dry-run`.
+3. Make the output folder, then build and install the mex files. Replace `R2024b` with your release. If the builder has a `release` argument (as in step 1), you can omit `--release`. To show the commands without a build, add `--dry-run`.
 
    ```sh
    sudo install -d -o "$USER" /opt/ptb-matlab
@@ -312,7 +387,8 @@ Without `gamemoded`, the output contains `GameMode ERROR: D-Bus error` lines. Yo
 | `packages.x86_64-linux.psychopy-app` | PsychoPy wx GUI (`bin/psychopy`), with the same interpreter as `bin/python`. |
 | `packages.x86_64-linux.psychopy-studio` | PsychoPy Studio (Electron GUI). Runs offline with a venv on the Nix Python. |
 | `packages.x86_64-linux.psychtoolbox-3` | PTB m-file tree, Octave mex files, and plugins. |
-| `packages.x86_64-linux.octave-psychtoolbox` | Octave environment with PTB on the path. |
+| `packages.x86_64-linux.octave-psychtoolbox` | Octave environment with PTB and the LSL bindings on the path. |
+| `packages.x86_64-linux.octave-liblsl` | LSL bindings (liblsl-Matlab) built for the nixpkgs Octave. `octave-psychtoolbox` and its variants rebuild them for their Octave. |
 | `packages.x86_64-linux.psychopy-env-lab`, `psychopy-app-lab`, `psychopy-studio-lab` | The base package with the kiosk defaults (`psychopyPythonLab`) plus the vendor Python packages in `psychopy/vendor-list.nix`. Unfree. |
 | `packages.x86_64-linux.psychopy-2024-env`, `psychopy-2024-app` | PsychoPy 2024.2.4 on Python 3.10 from `nixpkgs-2411`. The app command is `psychopy-2024`. See [PsychoPy 2024.2.4](#psychopy-202424). |
 | `packages.x86_64-linux.psychopy-2024-env-lab`, `psychopy-2024-app-lab` | The 2024 package with the kiosk defaults and the vendor Python packages. Unfree. |
@@ -321,10 +397,13 @@ Without `gamemoded`, the output contains `GameMode ERROR: D-Bus error` lines. Yo
 | `packages.x86_64-linux.psychtoolbox-3-datapixx`, `octave-psychtoolbox-datapixx` | PTB with the Datapixx mex files for MATLAB and Octave. Uses `octave-ilp64`. Unfree. |
 | `packages.x86_64-linux.octave-ilp64` | Octave 11.1 with 64-bit indexes, for the Octave Datapixx mex file. |
 | `packages.x86_64-linux.eyelink-core`, `eyelink-edfapi`, `vpixx-software-tools` | Vendor SDKs. Unfree. |
+| `packages.x86_64-linux.matlab-fhs` | Command `matlab`: starts the MATLAB at `/opt/matlab/<release>` in an FHS environment. |
+| `packages.x86_64-linux.matlab-install-fhs` | Command `matlab-install`: a shell in the same FHS environment, for the MathWorks installer. |
 | `packages.x86_64-linux.ptb-matlab-mex-builder`, `ptb-matlab-mex-builder-lab` | Command `ptb-matlab-mex-builder`: builds the PTB mex files with a MATLAB outside the store. The `-lab` variant adds Eyelink and Datapixx. It is unfree. |
 | `packages.x86_64-linux.matlab-psychtoolbox`, `matlab-psychtoolbox-lab` | Command `matlab-psychtoolbox`: starts the fleet's MATLAB with PTB on the path. |
 | `checks.x86_64-linux.<package>` | Builds of `psychopy-env`, `psychopy-app`, `psychopy-studio`, `psychtoolbox-3`, `octave-psychtoolbox`, `psychtoolbox-3-lab`, `octave-psychtoolbox-lab`, `ptb-matlab-mex-builder`, `psychtoolbox-3-datapixx`, `psychopy-env-lab`, `vpixx-software-tools`, `pypixxlib` (`psychopyPackages.pypixxlib`), and the four `psychopy-2024-*` packages. |
-| `checks.x86_64-linux.psychtoolbox-module` | NixOS VM test of the module. |
+| `checks.x86_64-linux.psychtoolbox-module` | NixOS VM test of the module. Includes an X server and a uinput stand-in for the MilliKey. |
+| `checks.x86_64-linux.lsl` | Creates an LSL outlet, resolves it, and receives a marker in `psychopy-env`, `psychopy-2024-env`, and `octave-psychtoolbox`, in the build sandbox. |
 | `checks.x86_64-linux.psychtoolbox-x11` | NixOS VM test with a real X server. Includes the PTB demo sweep and the PsychoPy 2024 subtests. See [Upstream tests](#upstream-tests). |
 | `checks.x86_64-linux.psychopy-pytest` | PsychoPy upstream test suite against `psychopy-env`, in the build sandbox. See [Upstream tests](#upstream-tests). |
 | `nixosModules.psychtoolbox` | The `programs.psychtoolbox` module. |
@@ -343,17 +422,21 @@ Without `gamemoded`, the output contains `GameMode ERROR: D-Bus error` lines. Yo
 | `psychopy-app` | 2026.2.4 | Wrapped `psychopy` launcher and `python`. |
 | `psychopy-studio` | 2026.2.3 | Electron 42 app. Its Python venv uses the packages of `psychopy-env`. |
 | `psychtoolbox-3` | 3.0.22.3 | Mex files built from source against the nixpkgs Octave 11.1 (32-bit indexes). |
-| `octave-psychtoolbox` | 3.0.22.3 | Octave with PTB, the Octave packages `image`, `signal`, `statistics`, `optim`, and `io` (installed, not loaded), GStreamer plugins, and gnuplot for the plotting demos. |
+| `octave-psychtoolbox` | 3.0.22.3 | Octave with PTB, the Octave packages `image`, `signal`, `statistics`, `optim`, and `io` (installed, not loaded), GStreamer plugins, and gnuplot for the plotting demos. Its `octaverc` adds the LSL bindings (`octave-liblsl`, rebuilt for the same Octave) to the path. |
 | `psychtoolbox-3-eyelink` | 3.0.22.3 | `psychtoolbox-3` with `withEyelink = true`: adds the Eyelink mex file, linked to `eyelink-core`. |
+| `octave-liblsl` | 1.14.0-unstable-2025-02-17 | liblsl-Matlab m-files and mex files for the nixpkgs Octave, in `share/octave-liblsl`. `bin/liblsl.so` links to the nixpkgs `liblsl` 1.17.5. Argument `octave`. |
 | `octave-psychtoolbox-eyelink` | 3.0.22.3 | `octave-psychtoolbox` with `psychtoolbox-3-eyelink`. |
 | `octave-ilp64` | 11.1 | nixpkgs `octave` with `use64BitIdx = true` (64-bit indexes, ILP64 BLAS and LAPACK). Sets `__structuredAttrs = true` on `qrupdate` (see [Vendor SDKs](#vendor-sdks)). Hydra does not build it. |
 | `psychtoolbox-3-datapixx` | 3.0.22.3 | `psychtoolbox-3` built against `octave-ilp64`, with `Datapixx.mexa64` and `Datapixx.mex` from `vpixx-software-tools`. See `psychtoolbox/with-datapixx.nix`. |
 | `octave-psychtoolbox-datapixx` | 3.0.22.3 | `octave-psychtoolbox` on `octave-ilp64` with `psychtoolbox-3-datapixx`. |
 | `psychtoolbox-3-lab` | 3.0.22.3 | `psychtoolbox-3` with `withEyelink = true`, built against `octave-ilp64`, with both Datapixx mex files. |
 | `octave-psychtoolbox-lab` | 3.0.22.3 | `octave-psychtoolbox` on `octave-ilp64` with `psychtoolbox-3-lab`. The Octave packages are built for `octave-ilp64`. |
-| `ptb-matlab-mex-builder` | 3.0.22.3 | FHS environment that builds modes 0, 1, 2, 3, 5, 6, 8, 9, 10, 11, 15, and 16 of `linuxmakeit64.m` with `/opt/matlab/<release>/bin/matlab`. Arguments: `matlabRoot` (default `"/opt/matlab"`), `defaultOut` (default `"/opt/ptb-matlab"`), `withEyelink`, `withDatapixx`, and `matlabFhsLibs` (keep it the same as `fhsLibs` in the fleet's `matlab.nix`). |
+| `matlabFhsLibs` | | Function from a package set to the list of libraries that MATLAB needs to start (`psychtoolbox/matlab/fhs-libs.nix`). `matlab-fhs`, `matlab-install-fhs`, and `ptb-matlab-mex-builder` use it. |
+| `matlab-fhs` | | FHS environment with `matlabFhsLibs`. Command `matlab` runs `<prefix>/<release>/bin/matlab`. Arguments: `prefix` (default `"/opt/matlab"`) and `release` (default `"R2024b"`). |
+| `matlab-install-fhs` | | FHS environment with `matlabFhsLibs`. Command `matlab-install` shows the install steps and starts `bash`. Arguments: `prefix`, `release` (as in `matlab-fhs`), and `installNotes` (default `""`: text added to the steps). |
+| `ptb-matlab-mex-builder` | 3.0.22.3 | FHS environment that builds modes 0, 1, 2, 3, 5, 6, 8, 9, 10, 11, 15, and 16 of `linuxmakeit64.m` with `/opt/matlab/<release>/bin/matlab`. Arguments: `matlabRoot` (default `"/opt/matlab"`, the `prefix` of `matlab-fhs`), `defaultOut` (default `"/opt/ptb-matlab"`), `release` (default `null`: the default of `--release`), `withEyelink`, `withDatapixx`, and `matlabFhsLibs` (default: the overlay attribute). |
 | `ptb-matlab-mex-builder-lab` | 3.0.22.3 | `ptb-matlab-mex-builder` with `withEyelink = true` (mode 4, `Eyelink.mexa64`) and `withDatapixx = true` (VPixx's prebuilt `Datapixx.mexa64`). Unfree. |
-| `matlab-psychtoolbox` | 3.0.22.3 | Shell script around the fleet's `matlab`. Runs `startup.m` before the `-r` or `-batch` command. Arguments: `release` (default `"R2024b"`), `mexDir` (default `/opt/ptb-matlab/<ptbVersion>/<release>/PsychBasic`), `matlab` (default `null`: `matlab` from `PATH`), and `preloadLibstdcxx` (default `true`, see [MATLAB](#matlab)). |
+| `matlab-psychtoolbox` | 3.0.22.3 | Shell script around the fleet's `matlab`. Runs `startup.m` before the `-r` or `-batch` command. Arguments: `release` (default `"R2024b"`), `mexDir` (default `/opt/ptb-matlab/<ptbVersion>/<release>/PsychBasic`), `matlab` (default `null`: `matlab` from `PATH`; usually `matlab-fhs` with the same `release`, which the package asserts), and `preloadLibstdcxx` (default `true`, see [MATLAB](#matlab)). |
 | `matlab-psychtoolbox-lab` | 3.0.22.3 | `matlab-psychtoolbox` for the mex files of `ptb-matlab-mex-builder-lab`. |
 | `psychopy-env-lab`, `psychopy-app-lab`, `psychopy-studio-lab` | | The base package with the kiosk defaults (`python = psychopyPythonLab`) and the vendor extras (`extraPackages = import ./psychopy/vendor-list.nix`). |
 | `psychopy2024Python`, `psychopy2024Packages` | 3.10 | `python310` from `nixpkgs-2411` with the package overrides in `psychopy/2024/python-packages.nix`, and its package set (`.pkgs`). |
@@ -378,6 +461,7 @@ Packages added to `psychopyPackages`:
 | `psychopy-sounddevice`, `psychopy-legacy`, `psychopy-visionscience`, `psychopy-mri-emulator` | | Plugins in `psychopy-env` and `psychopy-app`. |
 | `psychopy-glfw` | 0.0.2 | GLFW window backend plugin. Not in `psychopy/packages-list.nix` (see [Known limits](#known-limits)). |
 | `javascripthon` | | In `psychopy/packages-list.nix`. Builder's PsychoJS export needs it. |
+| `pylsl` | 1.18.1 (2024: 1.16.2) | From nixpkgs, with the nixpkgs `liblsl`. In `psychopy/packages-list.nix` and `psychopy/2024/packages-list.nix`. |
 | `liaison-py`, `dukpy` | | Dependencies of `psychopy-studio`. |
 | `sr-research-pylink` | 2.2.596.0 | SR Research PyLink. PyPI wheel that bundles `libeyelink_core` and the SDL2 calibration graphics library. The file has hashes for cp310, cp312, cp313, and cp314. Only cp312 and cp310 (PsychoPy 2024) are built and tested. Unfree. In `psychopy/vendor-list.nix`. |
 | `psychopy-eyetracker-sr-research` | 0.0.6 | ioHub EyeLink plugin. GPL-3.0, but it depends on `sr-research-pylink`. In `psychopy/vendor-list.nix`. |
@@ -392,7 +476,7 @@ Not built: PsychKinectCore, PsychOpenHMDVRCore, PsychOculusVRCore, RPiGPIOMex, a
 
 ### Options of `ptb-matlab-mex-builder`
 
-`--release RELEASE` selects the MATLAB release folder under `/opt/matlab`. A build needs it. `--out DIR` sets the root of the output (default `/opt/ptb-matlab`). `--modes "LIST"` selects modes of `linuxmakeit64.m`, separated by spaces. Modes 7, 12, 13, and 14 are not supported. `--keep` keeps the temporary build folder. `--dry-run` prints the commands and the `mex` calls, which Octave expands with the stub functions in `dry-run/`. `--check-env` checks the tools, the pkg-config modules, the `#include` lines of each source file (`gcc -E` with the flags of its `mex` call), and the library of each `-l` flag, and that the probes of MATLAB's compiler detection (`which gcc`, `gcc -dumpversion`, `gcc -print-file-name=libstdc++.so`) work under a clean `PATH`. `--dry-run` and `--check-env` do not start MATLAB. `--mex-setup --release RELEASE` starts MATLAB and prints how `mex` finds the compiler (`mex -v -setup`, MATLAB's `PATH`, and the release's `gcc_glnxa64.xml`); it does not build and does not fail when MATLAB reports an error.
+`--release RELEASE` selects the MATLAB release folder under `/opt/matlab`. A build needs it, unless the package has a `release` argument, which is the default. `--out DIR` sets the root of the output (default `/opt/ptb-matlab`). `--modes "LIST"` selects modes of `linuxmakeit64.m`, separated by spaces. Modes 7, 12, 13, and 14 are not supported. `--keep` keeps the temporary build folder. `--dry-run` prints the commands and the `mex` calls, which Octave expands with the stub functions in `dry-run/`. `--check-env` checks the tools, the pkg-config modules, the `#include` lines of each source file (`gcc -E` with the flags of its `mex` call), and the library of each `-l` flag, and that the probes of MATLAB's compiler detection (`which gcc`, `gcc -dumpversion`, `gcc -print-file-name=libstdc++.so`) work under a clean `PATH`. `--dry-run` and `--check-env` do not start MATLAB. `--mex-setup --release RELEASE` starts MATLAB and prints how `mex` finds the compiler (`mex -v -setup`, MATLAB's `PATH`, and the release's `gcc_glnxa64.xml`); it does not build and does not fail when MATLAB reports an error.
 
 A build writes to `<out>/<ptbVersion>/<release>/`: `PsychBasic/*.mexa64`, `runtime-path` (the `DT_RPATH` value), `runtime` (GC root), and `build-info.txt`.
 
@@ -408,6 +492,7 @@ A build writes to `<out>/<ptbVersion>/<release>/`: `PsychBasic/*.mexa64`, `runti
 | `programs.psychtoolbox.enableGamemode` | bool | `true` | Enables GameMode with the settings from PTB's `gamemode.ini`. |
 | `programs.psychtoolbox.enableDeepColor` | bool | `true` | Sets `deep_color=1` for `amdgpu` and `radeon`, and installs PTB's drirc as `/etc/drirc`. |
 | `programs.psychtoolbox.enableOpenXR` | bool | `false` | Enables Monado as the default OpenXR runtime. |
+| `programs.psychtoolbox.ignoreMilliKeyJoystick` | bool | `true` | Installs `/etc/X11/xorg.conf.d/52-millikey.conf`. The X server then ignores the joystick endpoint of the LabHackers MilliKey (USB ID `16c0:048a`). |
 | `programs.psychtoolbox.vpixx.enable` | bool | `false` | Installs `vpixx.package` and its udev rules (`70-vpixx.rules`, which also cover X-Rite i1Display and i1Pro colorimeters). Does not need `programs.psychtoolbox.enable`. |
 | `programs.psychtoolbox.vpixx.package` | package | `pkgs.vpixx-software-tools` | VPixx software tools package. |
 | `programs.psychtoolbox.vpixx.deviceServer.enable` | bool | `false` | Starts `vpixx-device-server.service` as the system user `vpixxds`. Needs `vpixx.enable`. The server listens on `0.0.0.0:9827`. The module does not open this port in the firewall. |
@@ -443,6 +528,8 @@ When enabled, the module also does these steps:
 | `psychtoolbox/with-datapixx.nix` | Function that adds the VPixx Datapixx mex files to a `psychtoolbox-3` package. `withOctaveMex = true` adds the Octave file. |
 | `psychtoolbox/vendor/vpixx-software-tools/mex-soversion.c` | Empty C file. `with-datapixx.nix` compiles it into the library that supplies `__octave_mex_soversion__` to the Octave Datapixx mex file. |
 | `psychtoolbox/octave-startup.m` | Octave script that puts PTB on the path. |
+| `psychtoolbox/matlab/fhs-libs.nix` | `matlabFhsLibs`: the libraries that MATLAB needs to start. |
+| `psychtoolbox/matlab/matlab-fhs.nix`, `psychtoolbox/matlab/matlab-install-fhs.nix` | `matlab-fhs`, `matlab-install-fhs`. |
 | `psychtoolbox/matlab/mex-builder.nix` | `ptb-matlab-mex-builder`. |
 | `psychtoolbox/matlab/mex-builder.sh` | Run script of `ptb-matlab-mex-builder`. |
 | `psychtoolbox/matlab/patches/matlab-nolm.patch` | Changes `linuxmakeit64.m` for a build without license management. |
@@ -450,11 +537,13 @@ When enabled, the module also does these steps:
 | `psychtoolbox/matlab/matlab-psychtoolbox.nix` | `matlab-psychtoolbox`. |
 | `psychtoolbox/matlab/startup.m` | MATLAB script that puts PTB and the mex folder on the path. |
 | `psychtoolbox/octave-env.nix` | `octave-psychtoolbox`. |
+| `psychtoolbox/octave-liblsl.nix` | `octave-liblsl`. |
 | `psychtoolbox/nixos-module.nix` | `programs.psychtoolbox`. |
 | `psychtoolbox/nixos-test.nix` | `psychtoolbox-module` check. |
 | `tests/psychtoolbox-x11.nix` | `psychtoolbox-x11` check. `expectedPass` lists the sweep entries that must pass. |
 | `tests/ptb-sweep.m` | PTB demo and test sweep of the `psychtoolbox-x11` check. The header comment tells how to run it with a different list. |
 | `tests/psychopy-pytest.nix` | `psychopy-pytest` check. The header comment tells how to update the baseline. |
+| `tests/lsl.nix` | `lsl` check. |
 | `.github/workflows/checks.yml` | Workflow that runs `nix flake check`. |
 | `.github/workflows/matlab-mex.yml` | Workflow that builds the PTB mex files with a MATLAB from `setup-matlab`, then loads them. |
 
@@ -578,7 +667,7 @@ The workflow keeps the Nix store in the GitHub Actions cache with `nix-community
 The vendor packages must not go into the cache. The cache is not public, but pull request runs from forks can restore the caches of the base branch. Thus the last step of the job deletes from the store all outputs of the vendor packages, their source files, the `-eyelink`, `-datapixx`, and `-lab` variants, and all paths that refer to them. If a vendor path stays in the store, the step fails, and the action does not save the cache. The base packages stay in the cache. They contain `meshpy` (Triangle), which is free only for non-commercial use.
 
 
-`matlab-mex.yml` builds `ptb-matlab-mex-builder` and runs `--check-env` before the MATLAB download. Then `matlab-actions/setup-matlab@v3` installs MATLAB (product `MATLAB`, with `cache`). A "Diagnose mex compiler detection" step then runs `--mex-setup` and continues on error, so the log shows the detection even when the build fails. In public repositories, `setup-matlab` gives a license only through the `run-*` actions and their `run-matlab-command` helper. The builder calls `matlab -batch`, so the workflow installs a shim at `/opt/matlab/<release>/bin/matlab` that sends the command to `run-matlab-command`. The helper is not documented and can change. The workflow builds the mex files into `$RUNNER_TEMP`, and makes sure that `ldd` finds all libraries except `libmx`, `libmex`, and `libmat`. Then it loads `Screen`, `GetSecs`, `WaitSecs`, and `PsychPortAudio` through `matlab-psychtoolbox` in an FHS environment, because the runner's glibc 2.39 is older than the glibc of the store. It uploads the mex files as an artifact.
+`matlab-mex.yml` builds `ptb-matlab-mex-builder` and runs `--check-env` before the MATLAB download. Then `matlab-actions/setup-matlab@v3` installs MATLAB (product `MATLAB`, with `cache`). A "Diagnose mex compiler detection" step then runs `--mex-setup` and continues on error, so the log shows the detection even when the build fails. In public repositories, `setup-matlab` gives a license only through the `run-*` actions and their `run-matlab-command` helper. The builder calls `matlab -batch`, so the workflow installs a shim at `/opt/matlab/<release>/bin/matlab` that sends the command to `run-matlab-command`. The helper is not documented and can change. The workflow builds the mex files into `$RUNNER_TEMP`, and makes sure that `ldd` finds all libraries except `libmx`, `libmex`, and `libmat`. Then it loads `Screen`, `GetSecs`, `WaitSecs`, and `PsychPortAudio` through `matlab-psychtoolbox` and `matlab-fhs` (the environment of the fleet, without the PTB libraries of the builder), because the runner's glibc 2.39 is older than the glibc of the store. It uploads the mex files as an artifact.
 
 Both workflows run on `aforren1/psych-nix`. The MATLAB workflow has passed with R2024b: the public-repository license lets `mex` run, MATLAB accepts the store GCC with a version warning, and `run-matlab-command` works inside bubblewrap. A cold `checks.yml` run takes about 2 hours; a warm run builds only the changed derivations.
 
@@ -612,7 +701,7 @@ Costs:
 
 - Hydra does not build `octave-ilp64`. A local build takes about 24 minutes. Then the Octave packages (`image`, `signal`, `statistics`, `optim`, `io`) build locally for it.
 - The closure is about 0.1 GiB larger than with the nixpkgs Octave.
-- Each `.oct` and `.mex` file in the environment must come from `octave-ilp64`. The `octave` override of `octave-psychtoolbox` does this for PTB and the Octave packages. Do not add Octave packages from the nixpkgs Octave.
+- Each `.oct` and `.mex` file in the environment must come from `octave-ilp64`. The `octave` override of `octave-psychtoolbox` does this for PTB, the Octave packages, and the LSL bindings. Do not add Octave packages from the nixpkgs Octave.
 
 Risk: the shim disables an Octave safety check. The package assumes that a mex file built with Octave 5.2 headers is ABI-compatible with the Octave 11 `liboctmex`. All `mx` and `mex` functions that the file imports exist in Octave 11. The file is not tested with a VPixx device.
 
@@ -620,7 +709,7 @@ Risk: the shim disables an Octave safety check. The package assumes that a mex f
 
 ### MATLAB
 
-MATLAB is outside the store, in the fleet FHS environment at `/opt/matlab/<release>`. MathWorks does not permit redistribution. Thus a derivation cannot run MATLAB's `mex`. `ptb-matlab-mex-builder` is an FHS environment that runs outside the Nix sandbox. It contains the libraries that MATLAB needs to start (a copy of the fleet's `fhsLibs`) and the headers and libraries of `psychtoolbox-3`. It applies the patches and the `postPatch` of `psychtoolbox-3`, then `matlab-nolm.patch`. Thus the MATLAB and Octave builds compile the same C code against the same libraries. `postPatch` deletes the prebuilt binaries, which include the upstream `.mexa64` files and `libLexActivator`.
+MATLAB is outside the store, at `/opt/matlab/<release>`. MathWorks does not permit redistribution. Thus a derivation cannot run MATLAB's `mex`. `matlab-fhs` runs MATLAB in an FHS environment with the libraries of `matlabFhsLibs`. `matlab-install-fhs` has the same libraries, because the MathWorks installer is a MATLAB program. `ptb-matlab-mex-builder` is an FHS environment that runs outside the Nix sandbox. It contains the same `matlabFhsLibs` and the headers and libraries of `psychtoolbox-3`. It applies the patches and the `postPatch` of `psychtoolbox-3`, then `matlab-nolm.patch`. Thus the MATLAB and Octave builds compile the same C code against the same libraries. `postPatch` deletes the prebuilt binaries, which include the upstream `.mexa64` files and `libLexActivator`.
 
 License management: the upstream `.mexa64` files link `libLexActivator` and need a license key or a trial. The PTB source disables license management when `PSYCH_NOLM` is defined: `PsychLM.c` is inside `#ifndef PSYCH_NOLM`, and `MiniBox.c` has stub functions. Upstream defines `PSYCH_NOLM` for its Octave builds on Linux. Thus the C code does not change. `matlab-nolm.patch` changes only `linuxmakeit64.m`. It adds `-DPSYCH_NOLM` and removes `-lLexActivator` and the `PsychPlugins` library path and rpath. It also does what the Octave patches do: include paths from pkg-config, the system GLEW, no `-DPTB_USE_NVSTUSB`, and PsychCV without `libapriltag-utils`. It adds `-Wno-address` and `-Wno-int-conversion` to moglcore, because GCC 14 and later make `int-conversion` an error. It skips modes 7, 12, and 14 (libfreenect, Oculus SDK, OpenHMD). Self-built mex files do not get upstream support. For paid support, see `help PsychPaidSupportAndServices`.
 
@@ -633,6 +722,26 @@ Limits of the rpath:
 - The rpath names exact store paths. The builder registers a GC root (`runtime`) next to the files. On machines that get a copy, the closure of `matlab-psychtoolbox` keeps the same libraries. Thus copy the files only to machines on the same flake revision.
 
 Startup: `startup.m` adds PTB to the path, removes the Octave, macOS, Windows, ARM, and Wayland folders, and puts the mex folder first. The wrapper runs it with `run()` before the command of `-r` or `-batch`. The wrapper installs it as `ptb_startup.m` in a subfolder, because `run()` calls a script by its base name, which must be a valid MATLAB identifier. A store file name such as `<hash>-startup.m` is not valid. A `startup.m` on `MATLABPATH` would depend on the position of `userpath`. The package deletes the prebuilt `.class` files, but MATLAB releases before R2025a need the Java class `GetCharJava` for `GetChar` and `ListenChar`. Thus `matlab-psychtoolbox` compiles `GetCharJava.java` for Java 8 and adds it with `javaaddpath`.
+
+### Lab hardware
+
+**Lab Streaming Layer.** The lab's Debian configuration built `liblsl` from source. nixpkgs has `liblsl` 1.17.5 and `pylsl`, so this flake does not package them again. PsychoPy has no LSL plugin: experiments and the Builder demos import `pylsl` directly. Thus `pylsl` is in `psychopy/packages-list.nix`, not in `psychopy/vendor-list.nix`, for these reasons:
+
+- It is free (MIT) and small (about 1 MiB with `liblsl`).
+- It needs no device. A stream is only a network service.
+- An experiment that imports `pylsl` must run on each machine, not only on the `-lab` variants.
+
+PsychoPy 2024 gets it too (`pylsl` 1.16.2 from nixos-24.11), because experiments written for 2024 use the same import. Both versions use the same LSL protocol (1.10), so their streams resolve on one network.
+
+For Octave, upstream's `build_mex.m` looks for `liblsl` in `/usr/lib` or downloads a release, which does not work on NixOS. Thus `octave-liblsl.nix` builds the mex files directly. A mex file loads only in the Octave that it was built for, so each `octave-psychtoolbox` variant rebuilds the bindings for its Octave, also `octave-ilp64`.
+
+The `lsl` check and the install check of `octave-liblsl` run in the build sandbox. The sandbox has only the loopback interface and no multicast. Thus the checks show that a recorder on the same machine finds the stream. They do not show discovery across the lab network.
+
+**MilliKey.** The MilliKey has a keyboard endpoint and a joystick endpoint with the same USB ID and name. If the X server adds the joystick endpoint, PsychHID can select it instead of the keyboard endpoint. The rule comes from the lab's Debian configuration (`52-millikey.conf`). Psychtoolbox has no MilliKey file.
+
+The module installs the rule as a file in `/etc/X11/xorg.conf.d`, not through `services.xserver.inputClassSections`. The X server reads that directory in addition to the `-config` file. Thus the rule also applies when a host replaces `services.xserver.config` with a complete `xorg.conf`, for example a dual-screen (Zaphod) layout.
+
+The rule is on by default. It matches only a joystick device with USB ID `16c0:048a` and "MilliKey" in its name. Many small manufacturers share the USB vendor ID `16c0`, so the name match is necessary. On a machine without a MilliKey, the rule has no effect.
 
 ### Known limits
 
@@ -653,3 +762,5 @@ Startup: `startup.m` adds PTB to the path, removes the Octave, macOS, Windows, A
 - PTB tests that write into `PsychtoolboxRoot`, for example `UnitTestRunAll` and `Files_Test_FileFromFolder`, cannot run, because the store is read-only.
 - Upstream bug, not fixed here: `PhotopigmentNomogramDemo` calls `sgtitle`, which Octave does not have.
 - The MATLAB packages are tested only on GitHub Actions with R2024b, in a non-interactive session under Xvfb: the mex build, `DT_RPATH`, and loading `Screen`, `GetSecs`, `WaitSecs`, and `PsychPortAudio`. Not tested: an interactive MATLAB session, the libstdc++ preload on the fleet, the GC root, the copy to other machines, `Screen('OpenWindow')` on a real GPU, and hardware (Eyelink, Datapixx).
+- The MATLAB packages do not include the LSL bindings. The liblsl-Matlab mex files must be built with MATLAB's `mex`, as the PTB mex files are (see [MATLAB](#matlab)). To build them, link `lib/liblsl.so` and `include` of the nixpkgs `liblsl` into the `bin` folder of liblsl-Matlab, then run upstream's `build_mex.m` in MATLAB.
+- The MilliKey rule is tested only with a uinput device that has the MilliKey USB ID and name, not with a MilliKey. The rule applies only to the X server. In a Wayland session, it has no effect.

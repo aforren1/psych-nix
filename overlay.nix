@@ -40,6 +40,8 @@ in
 
   psychtoolbox-3 = final.callPackage ./psychtoolbox/package.nix { };
   octave-psychtoolbox = final.callPackage ./psychtoolbox/octave-env.nix { };
+  # Lab Streaming Layer for Octave. octave-env.nix rebuilds it for its Octave.
+  octave-liblsl = final.callPackage ./psychtoolbox/octave-liblsl.nix { };
 
   # Vendor SDKs. All unfree; fetched from the vendors' public download URLs.
   # Do not push these to a public binary cache.
@@ -110,6 +112,11 @@ in
   # /opt/matlab). The builder runs MATLAB's mex inside an FHS env on a machine
   # that has MATLAB and installs the result under /opt/ptb-matlab; the wrapper
   # starts the fleet's `matlab` with PTB on the path. See psychtoolbox/matlab/.
+  # The FHS libraries are defined once here, so the environment that runs
+  # MATLAB and the one that builds the mex files cannot drift apart.
+  matlabFhsLibs = import ./psychtoolbox/matlab/fhs-libs.nix;
+  matlab-fhs = final.callPackage ./psychtoolbox/matlab/matlab-fhs.nix { };
+  matlab-install-fhs = final.callPackage ./psychtoolbox/matlab/matlab-install-fhs.nix { };
   ptb-matlab-mex-builder = final.callPackage ./psychtoolbox/matlab/mex-builder.nix { };
   ptb-matlab-mex-builder-lab = final.callPackage ./psychtoolbox/matlab/mex-builder.nix {
     withEyelink = true;

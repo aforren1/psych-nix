@@ -2,6 +2,7 @@
   lib,
   octave,
   psychtoolbox-3,
+  octave-liblsl,
   gst_all_1,
   gnuplot,
 }:
@@ -22,6 +23,9 @@ let
   );
   gstPluginScanner = "${lib.getOutput "out" gst_all_1.gstreamer}/libexec/gstreamer-1.0/gst-plugin-scanner";
 
+  # The mex files must be built for this Octave, see octave-liblsl.nix.
+  lsl = octave-liblsl.override { inherit octave; };
+
   env = octave.buildEnv.override {
     # The packages that the lab's Debian octaverc preloads. They are installed
     # but not loaded; use `pkg load`.
@@ -41,6 +45,8 @@ let
     postBuild = ''
       echo 'source("${psychtoolbox-3.octaveStartup}");' \
         >> $out/share/octave/site/m/startup/octaverc
+      echo "addpath('${lsl}/${lsl.mPath}');" \
+        >> $out/share/octave/site/m/startup/octaverc
 
       for prog in octave octave-cli octave-${octave.version} octave-cli-${octave.version}; do
         substituteInPlace "$out/bin/$prog" --replace-fail 'exec -a "$0"' \
@@ -56,9 +62,9 @@ env.overrideAttrs (old: {
   name = "octave-psychtoolbox-${psychtoolbox-3.version}";
   passthru = old.passthru // {
     psychtoolbox = psychtoolbox-3;
-    inherit octave;
+    inherit octave lsl;
   };
   meta = old.meta // {
-    description = "GNU Octave with Psychtoolbox-3 on the path";
+    description = "GNU Octave with Psychtoolbox-3 and Lab Streaming Layer on the path";
   };
 })
