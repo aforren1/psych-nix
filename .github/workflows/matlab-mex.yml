@@ -11,8 +11,8 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: MATLAB release, for example R2024b or R2025a
-        default: R2024b
+        description: MATLAB release, for example R2024a or R2025a
+        default: R2024a
   push:
     paths:
       - "psychtoolbox/**"
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      MATLAB_RELEASE: ${{ inputs.release || 'R2024b' }}
+      MATLAB_RELEASE: ${{ inputs.release || 'R2024a' }}
     steps:
       - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31

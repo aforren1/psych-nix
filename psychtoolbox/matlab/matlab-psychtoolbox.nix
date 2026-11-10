@@ -15,7 +15,7 @@
   gst_all_1,
   psychtoolbox-3,
   ptb-matlab-mex-builder,
-  release ? "R2024b",
+  release ? "R2024a",
   # PsychBasic folder that ptb-matlab-mex-builder --release <release> made.
   mexDir ? "${ptb-matlab-mex-builder.defaultOut}/${psychtoolbox-3.version}/${release}/PsychBasic",
   # The `matlab` FHS environment, usually matlab-fhs for the same release.
@@ -27,6 +27,14 @@
   # wrapper starts, so the store GCC must use the same glibc as the host and
   # the FHS environment: true when the fleet uses this overlay.
   preloadLibstdcxx ? true,
+  # MATLAB's JOGL (2.3.2, through at least R2024a) marks every Mesa
+  # compatibility profile of GL 3.1 or later as non-compliant, so figures fail
+  # with "Could not initialize shared resources" on any current Mesa. Capping
+  # the reported version at 3.0 lets JOGL accept the hardware driver. Mesa
+  # reads it once per process, so PTB also sees "3.0"; GLSL stays at the
+  # driver's version and PTB's capabilities were identical in a test (see
+  # README, MATLAB). null: no override. A value set by the caller wins.
+  mesaGlVersionOverride ? "3.0",
 }:
 
 assert lib.assertMsg (psychtoolbox-3.version == ptb-matlab-mex-builder.psychtoolbox.version)
@@ -121,6 +129,9 @@ in
   export GST_PLUGIN_SCANNER=${gstPluginScanner}
   ${lib.optionalString preloadLibstdcxx ''
     export LD_PRELOAD=${lib.getLib stdenv.cc.cc}/lib/libstdc++.so.6''${LD_PRELOAD:+:$LD_PRELOAD}
+  ''}
+  ${lib.optionalString (mesaGlVersionOverride != null) ''
+    export MESA_GL_VERSION_OVERRIDE=''${MESA_GL_VERSION_OVERRIDE-${mesaGlVersionOverride}}
   ''}
   exec ${matlabExe} "''${args[@]}"
 '').overrideAttrs

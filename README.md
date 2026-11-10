@@ -222,7 +222,7 @@ MATLAB is not in the store, so Nix cannot build the PTB mex files for MATLAB. Bu
    ```nix
    { pkgs, ... }:
    let
-     release = "R2024b";
+     release = "R2024a";
      matlab = pkgs.matlab-fhs.override { inherit release; };
    in
    {
@@ -243,15 +243,15 @@ MATLAB is not in the store, so Nix cannot build the PTB mex files for MATLAB. Bu
    ptb-matlab-mex-builder --check-env
    ```
 
-3. Make the output folder, then build and install the mex files. Replace `R2024b` with your release. If the builder has a `release` argument (as in step 1), you can omit `--release`. To show the commands without a build, add `--dry-run`.
+3. Make the output folder, then build and install the mex files. Replace `R2024a` with your release. If the builder has a `release` argument (as in step 1), you can omit `--release`. To show the commands without a build, add `--dry-run`.
 
    ```sh
    sudo install -d -o "$USER" /opt/ptb-matlab
-   ptb-matlab-mex-builder --release R2024b
+   ptb-matlab-mex-builder --release R2024a
    ```
 
    If a mex file is missing after the build, the builder stops and keeps the old files. To keep the temporary build folder for examination, add `--keep`.
-4. Make sure that MATLAB loads the mex files. The output must show `/opt/ptb-matlab/3.0.22.3/R2024b/PsychBasic/Screen.mexa64`.
+4. Make sure that MATLAB loads the mex files. The output must show `/opt/ptb-matlab/3.0.22.3/R2024a/PsychBasic/Screen.mexa64`.
 
    ```sh
    matlab-psychtoolbox -batch "disp(which('Screen')); disp(GetSecs); PsychtoolboxVersion"
@@ -287,7 +287,7 @@ Know these limits:
 After you push the repository to GitHub, two workflows in `.github/workflows/` run. For the design, see [Continuous integration](#continuous-integration).
 
 - `Checks` (`checks.yml`) runs `nix flake check` for each push and pull request. It needs no secrets.
-- `MATLAB mex files` (`matlab-mex.yml`) builds the PTB mex files for MATLAB and loads them in MATLAB. It runs for each push that changes a file in `psychtoolbox/`. To select a MATLAB release, start it manually (`workflow_dispatch`) and set `release`, for example `R2025a`. The default is `R2024b`. The mex files are in the artifact `ptb-matlab-mex-<release>`. In a public repository, the workflow needs no secret. In a private repository, add a MATLAB batch licensing token as the repository secret `MLM_LICENSE_TOKEN`.
+- `MATLAB mex files` (`matlab-mex.yml`) builds the PTB mex files for MATLAB and loads them in MATLAB. It runs for each push that changes a file in `psychtoolbox/`. To select a MATLAB release, start it manually (`workflow_dispatch`) and set `release`, for example `R2025a`. The default is `R2024a`, the release of the lab machines. The mex files are in the artifact `ptb-matlab-mex-<release>`. In a public repository, the workflow needs no secret. In a private repository, add a MATLAB batch licensing token as the repository secret `MLM_LICENSE_TOKEN`.
 
 ### Add a PsychoPy plugin
 
@@ -432,11 +432,11 @@ Without `gamemoded`, the output contains `GameMode ERROR: D-Bus error` lines. Yo
 | `psychtoolbox-3-lab` | 3.0.22.3 | `psychtoolbox-3` with `withEyelink = true`, built against `octave-ilp64`, with both Datapixx mex files. |
 | `octave-psychtoolbox-lab` | 3.0.22.3 | `octave-psychtoolbox` on `octave-ilp64` with `psychtoolbox-3-lab`. The Octave packages are built for `octave-ilp64`. |
 | `matlabFhsLibs` | | Function from a package set to the list of libraries that MATLAB needs to start (`psychtoolbox/matlab/fhs-libs.nix`). `matlab-fhs`, `matlab-install-fhs`, and `ptb-matlab-mex-builder` use it. |
-| `matlab-fhs` | | FHS environment with `matlabFhsLibs`. Command `matlab` runs `<prefix>/<release>/bin/matlab`. Arguments: `prefix` (default `"/opt/matlab"`) and `release` (default `"R2024b"`). |
+| `matlab-fhs` | | FHS environment with `matlabFhsLibs`. Command `matlab` runs `<prefix>/<release>/bin/matlab`. Arguments: `prefix` (default `"/opt/matlab"`) and `release` (default `"R2024a"`). |
 | `matlab-install-fhs` | | FHS environment with `matlabFhsLibs`. Command `matlab-install` shows the install steps and starts `bash`. Arguments: `prefix`, `release` (as in `matlab-fhs`), and `installNotes` (default `""`: text added to the steps). |
 | `ptb-matlab-mex-builder` | 3.0.22.3 | FHS environment that builds modes 0, 1, 2, 3, 5, 6, 8, 9, 10, 11, 15, and 16 of `linuxmakeit64.m` with `/opt/matlab/<release>/bin/matlab`. Arguments: `matlabRoot` (default `"/opt/matlab"`, the `prefix` of `matlab-fhs`), `defaultOut` (default `"/opt/ptb-matlab"`), `release` (default `null`: the default of `--release`), `withEyelink`, `withDatapixx`, and `matlabFhsLibs` (default: the overlay attribute). |
 | `ptb-matlab-mex-builder-lab` | 3.0.22.3 | `ptb-matlab-mex-builder` with `withEyelink = true` (mode 4, `Eyelink.mexa64`) and `withDatapixx = true` (VPixx's prebuilt `Datapixx.mexa64`). Unfree. |
-| `matlab-psychtoolbox` | 3.0.22.3 | Shell script around the fleet's `matlab`. Runs `startup.m` before the `-r` or `-batch` command. Arguments: `release` (default `"R2024b"`), `mexDir` (default `/opt/ptb-matlab/<ptbVersion>/<release>/PsychBasic`), `matlab` (default `null`: `matlab` from `PATH`; usually `matlab-fhs` with the same `release`, which the package asserts), and `preloadLibstdcxx` (default `true`, see [MATLAB](#matlab)). |
+| `matlab-psychtoolbox` | 3.0.22.3 | Shell script around the fleet's `matlab`. Runs `startup.m` before the `-r` or `-batch` command. Arguments: `release` (default `"R2024a"`), `mexDir` (default `/opt/ptb-matlab/<ptbVersion>/<release>/PsychBasic`), `matlab` (default `null`: `matlab` from `PATH`; usually `matlab-fhs` with the same `release`, which the package asserts), `preloadLibstdcxx` (default `true`), and `mesaGlVersionOverride` (default `"3.0"`, `null` for none). See [MATLAB](#matlab). |
 | `matlab-psychtoolbox-lab` | 3.0.22.3 | `matlab-psychtoolbox` for the mex files of `ptb-matlab-mex-builder-lab`. |
 | `psychopy-env-lab`, `psychopy-app-lab`, `psychopy-studio-lab` | | The base package with the kiosk defaults (`python = psychopyPythonLab`) and the vendor extras (`extraPackages = import ./psychopy/vendor-list.nix`). |
 | `psychopy2024Python`, `psychopy2024Packages` | 3.10 | `python310` from `nixpkgs-2411` with the package overrides in `psychopy/2024/python-packages.nix`, and its package set (`.pkgs`). |
@@ -555,6 +555,7 @@ When enabled, the module also does these steps:
 | `GST_PLUGIN_SYSTEM_PATH_1_0` | GStreamer base, good, bad, ugly, and libav plugins, prepended | `octave` and `octave-cli` in `octave-psychtoolbox` and its variants, `matlab-psychtoolbox` |
 | `GST_PLUGIN_SCANNER` | `gst-plugin-scanner` of the same GStreamer | `octave` and `octave-cli` in `octave-psychtoolbox` and its variants, `matlab-psychtoolbox` |
 | `LD_PRELOAD` | `libstdc++.so.6` of the store GCC, prepended | `matlab-psychtoolbox` with `preloadLibstdcxx = true` |
+| `MESA_GL_VERSION_OVERRIDE` | `3.0`, if not set | `matlab-psychtoolbox` with `mesaGlVersionOverride = "3.0"` |
 | `UV_OFFLINE`, `UV_NO_CACHE`, `UV_NO_CONFIG` | `1` | `psychopy-studio` |
 | `UV_PYTHON_DOWNLOADS` | `never` | `psychopy-studio` |
 | `LD_LIBRARY_PATH` | `lib` of the 24.11 Mesa drivers, prepended | All programs in `psychopy-2024-env`, `psychopy-2024-app`, and their `-lab` variants |
@@ -670,7 +671,7 @@ The vendor packages must not go into the cache. The cache is not public, but pul
 
 `matlab-mex.yml` builds `ptb-matlab-mex-builder` and runs `--check-env` before the MATLAB download. Then `matlab-actions/setup-matlab@v3` installs MATLAB (product `MATLAB`, with `cache`). A "Diagnose mex compiler detection" step then runs `--mex-setup` and continues on error, so the log shows the detection even when the build fails. In public repositories, `setup-matlab` gives a license only through the `run-*` actions and their `run-matlab-command` helper. The builder calls `matlab -batch`, so the workflow installs a shim at `/opt/matlab/<release>/bin/matlab` that sends the command to `run-matlab-command`. The helper is not documented and can change. The workflow builds the mex files into `$RUNNER_TEMP`, and makes sure that `ldd` finds all libraries except `libmx`, `libmex`, and `libmat`. Then it loads `Screen`, `GetSecs`, `WaitSecs`, and `PsychPortAudio` through `matlab-psychtoolbox` and `matlab-fhs` (the environment of the fleet, without the PTB libraries of the builder), because the runner's glibc 2.39 is older than the glibc of the store. It uploads the mex files as an artifact.
 
-Both workflows run on `aforren1/psych-nix`. The MATLAB workflow has passed with R2024b: the public-repository license lets `mex` run, MATLAB accepts the store GCC with a version warning, and `run-matlab-command` works inside bubblewrap. A cold `checks.yml` run takes about 2 hours; a warm run builds only the changed derivations.
+Both workflows run on `aforren1/psych-nix`. The MATLAB workflow has passed with R2024b. R2024a, now the default, has not run on GitHub Actions yet. With R2024b: the public-repository license lets `mex` run, MATLAB accepts the store GCC with a version warning, and `run-matlab-command` works inside bubblewrap. A cold `checks.yml` run takes about 2 hours; a warm run builds only the changed derivations.
 
 ### Vendor SDKs
 
@@ -714,7 +715,9 @@ MATLAB is outside the store, at `/opt/matlab/<release>`. MathWorks does not perm
 
 Library list: `matlabFhsLibs` starts from the list of doronbehar/nix-matlab. It also has the libraries that `ldd` found missing in an R2024a install: GTK 2 and `libgbm` (`MATLABWindow`, used by the installer and the help browser), `freetype` (MathWorks Service Host), `libcap` (MATLAB core), GStreamer (`VideoReader`), and `libltdl` (ODBC). Libraries for some toolboxes are not in the list, for example Trilinos, VTK, RTI Connext DDS, and UHD.
 
-MathWorks Service Host: MATLAB needs this service for licensing. If it does not start, MATLAB stops with error 5201. MATLAB installs the service in `~/.MathWorks/ServiceHost` and updates it there; it is not part of `/opt/matlab`. Some of its libraries request an executable stack. glibc 2.41 and later refuse this in `dlopen` ("cannot enable executable stack"). Thus the three FHS environments set `GLIBC_TUNABLES=glibc.rtld.execstack=2` (`psychtoolbox/matlab/fhs-profile.nix`). The service continues to run after MATLAB stops. After a change to the FHS environment, stop the old service (`pkill -f "^$HOME/.MathWorks/ServiceHost/"`), else MATLAB connects to the old service and stops with error 5201.
+MathWorks Service Host: MATLAB needs this service for licensing. If it does not start, MATLAB stops with error 5201. MATLAB installs the service in `~/.MathWorks/ServiceHost` and updates it there; it is not part of `/opt/matlab`. Some of its libraries request an executable stack. glibc 2.41 and later refuse this in `dlopen` ("cannot enable executable stack"). Thus the three FHS environments set `GLIBC_TUNABLES=glibc.rtld.execstack=2` (`psychtoolbox/matlab/fhs-profile.nix`). The service continues to run after MATLAB stops. After a change to the FHS environment, stop the old service (`pkill -x MathWorksServic`; the kernel shortens process names to 15 characters), else MATLAB connects to the old service and stops with error 5201.
+
+Figures (JOGL): MATLAB draws figures with JOGL 2.3.2 (R2024a). JOGL sets its `GLNonCompliant` quirk for every Mesa compatibility profile with version 3.1 or later, and it has no upper limit for the Mesa version. Since Mesa 18, the compatibility profile on Intel and AMD is 4.x. Thus JOGL refuses all hardware contexts, and a plot stops with "X11GLXDrawableFactory - Could not initialize shared resources". Plain `matlab` hides this: MATLAB's libstdc++ (`GLIBCXX_3.4.28`) is older than the libstdc++ that Mesa 26 needs (`GLIBCXX_3.4.29`), so the hardware driver does not load and MATLAB uses its own software Mesa 17.1.3. Do not use `matlab -softwareopengl` with PTB: MATLAB then replaces the system libGL in the whole process, and `Screen('OpenWindow')` stops with "Mesa OpenGL software renderer is active". `matlab-psychtoolbox` sets `MESA_GL_VERSION_OVERRIDE=3.0` instead. Mesa reads the variable one time for each process, so PTB also gets version 3.0. The GLSL version does not change (4.60 on the test machine). A test on Mesa 26.1.8 (Intel ADL-N) gave the same `Screen('GetWindowInfo')` capabilities (FBO, blending, textures, and filtering up to 32 bpc) with and without the override, and the figures used hardware OpenGL. The test did not cover PsychVulkan, OpenXR, or HDR. To disable the override, set `mesaGlVersionOverride = null`, or set `MESA_GL_VERSION_OVERRIDE` before you start the wrapper.
 
 License management: the upstream `.mexa64` files link `libLexActivator` and need a license key or a trial. The PTB source disables license management when `PSYCH_NOLM` is defined: `PsychLM.c` is inside `#ifndef PSYCH_NOLM`, and `MiniBox.c` has stub functions. Upstream defines `PSYCH_NOLM` for its Octave builds on Linux. Thus the C code does not change. `matlab-nolm.patch` changes only `linuxmakeit64.m`. It adds `-DPSYCH_NOLM` and removes `-lLexActivator` and the `PsychPlugins` library path and rpath. It also does what the Octave patches do: include paths from pkg-config, the system GLEW, no `-DPTB_USE_NVSTUSB`, and PsychCV without `libapriltag-utils`. It adds `-Wno-address` and `-Wno-int-conversion` to moglcore, because GCC 14 and later make `int-conversion` an error. It skips modes 7, 12, and 14 (libfreenect, Oculus SDK, OpenHMD). Self-built mex files do not get upstream support. For paid support, see `help PsychPaidSupportAndServices`.
 
@@ -766,6 +769,6 @@ The rule is on by default. It matches only a joystick device with USB ID `16c0:0
 - PsychoPy 2024 and 2026 share the preference folder `~/.psychopy3`.
 - PTB tests that write into `PsychtoolboxRoot`, for example `UnitTestRunAll` and `Files_Test_FileFromFolder`, cannot run, because the store is read-only.
 - Upstream bug, not fixed here: `PhotopigmentNomogramDemo` calls `sgtitle`, which Octave does not have.
-- The MATLAB packages are tested only on GitHub Actions with R2024b, in a non-interactive session under Xvfb: the mex build, `DT_RPATH`, and loading `Screen`, `GetSecs`, `WaitSecs`, and `PsychPortAudio`. Not tested: an interactive MATLAB session, the libstdc++ preload on the fleet, the GC root, the copy to other machines, `Screen('OpenWindow')` on a real GPU, and hardware (Eyelink, Datapixx).
+- The MATLAB packages are tested only on GitHub Actions with R2024b, in a non-interactive session under Xvfb: the mex build, `DT_RPATH`, and loading `Screen`, `GetSecs`, `WaitSecs`, and `PsychPortAudio`. Tested by hand with R2024a Update 9 on one Intel ADL-N machine (Mesa 26.1.8, XFCE on X11): the install, the mex build, loading all mex files, figures, and a PTB window. Not tested: the fleet's AMD GPUs, the GC root, the copy to other machines, and hardware (Eyelink, Datapixx).
 - The MATLAB packages do not include the LSL bindings. The liblsl-Matlab mex files must be built with MATLAB's `mex`, as the PTB mex files are (see [MATLAB](#matlab)). To build them, link `lib/liblsl.so` and `include` of the nixpkgs `liblsl` into the `bin` folder of liblsl-Matlab, then run upstream's `build_mex.m` in MATLAB.
 - The MilliKey rule is tested only with a uinput device that has the MilliKey USB ID and name, not with a MilliKey. The rule applies only to the X server. In a Wayland session, it has no effect.

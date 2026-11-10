@@ -10,7 +10,7 @@
   writeShellScript,
   matlabFhsLibs,
   prefix ? "/opt/matlab",
-  release ? "R2024b",
+  release ? "R2024a",
 }:
 
 let

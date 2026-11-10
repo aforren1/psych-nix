@@ -7,7 +7,7 @@
   writeShellScript,
   matlabFhsLibs,
   prefix ? "/opt/matlab",
-  release ? "R2024b",
+  release ? "R2024a",
   # Text added to the instructions, for example where the fleet keeps the
   # license file.
   installNotes ? "",
